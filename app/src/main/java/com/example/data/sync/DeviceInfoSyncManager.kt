@@ -69,13 +69,24 @@ class DeviceInfoSyncManager(private val context: Context) {
             val subManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
             val activeSubList = subManager?.activeSubscriptionInfoList
             if (!activeSubList.isNullOrEmpty()) {
+                val carriers = activeSubList.mapNotNull { 
+                    it.carrierName?.toString()?.ifEmpty { null } ?: it.displayName?.toString()?.ifEmpty { null } 
+                }.distinct()
+                if (carriers.isNotEmpty()) {
+                    carrierName = carriers.joinToString(" / ")
+                }
+
+                val numbers = activeSubList.mapNotNull { it.number?.ifEmpty { null } }.distinct()
+                if (numbers.isNotEmpty()) {
+                    phoneNumber = numbers.joinToString(" / ")
+                } else {
+                    val firstSub = activeSubList.first()
+                    phoneNumber = firstSub.number?.ifEmpty { "N/A" } ?: "N/A"
+                }
+
                 val subInfo = activeSubList.first()
                 subId = subInfo.subscriptionId
                 iccid = subInfo.iccId ?: "N/A"
-                phoneNumber = subInfo.number?.ifEmpty { "N/A" } ?: "N/A"
-                if (carrierName == "N/A" || carrierName == "Active Carrier") {
-                    carrierName = subInfo.carrierName?.toString()?.ifEmpty { carrierName } ?: carrierName
-                }
             }
         } catch (_: Exception) {}
 

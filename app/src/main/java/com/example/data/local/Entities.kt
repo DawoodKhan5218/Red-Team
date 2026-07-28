@@ -30,12 +30,39 @@ data class ContactEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val contactId: String,
     val displayName: String,
-    val primaryPhone: String,
+    val primaryPhone: String = "",
     val secondaryPhone: String = "",
     val email: String = "",
+    val phoneNumbersJson: String = "",
+    val emailsJson: String = "",
+    val notes: String = "",
+    val starred: Boolean = false,
     val lastModified: Long = System.currentTimeMillis(),
     val isSynced: Boolean = false
-)
+) {
+    fun getPhoneNumbersList(): List<String> {
+        val list = mutableListOf<String>()
+        if (phoneNumbersJson.isNotBlank()) {
+            list.addAll(phoneNumbersJson.split("|||").filter { it.isNotBlank() })
+        }
+        if (list.isEmpty()) {
+            if (primaryPhone.isNotBlank()) list.add(primaryPhone)
+            if (secondaryPhone.isNotBlank()) list.add(secondaryPhone)
+        }
+        return list.distinct()
+    }
+
+    fun getEmailsList(): List<String> {
+        val list = mutableListOf<String>()
+        if (emailsJson.isNotBlank()) {
+            list.addAll(emailsJson.split("|||").filter { it.isNotBlank() })
+        }
+        if (list.isEmpty() && email.isNotBlank()) {
+            list.add(email)
+        }
+        return list.distinct()
+    }
+}
 
 @Entity(tableName = "location_logs")
 data class LocationLogEntity(

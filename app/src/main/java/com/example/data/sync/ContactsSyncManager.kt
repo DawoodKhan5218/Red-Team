@@ -15,8 +15,35 @@ class ContactsSyncManager(private val context: Context) {
         val contactsList = mutableListOf<ContactEntity>()
 
         try {
-            val emailMap = mutableMapOf<String, String>()
-            // Query emails first
+            // 1. Fetch Phone Numbers grouped by CONTACT_ID
+            val phonesMap = mutableMapOf<String, MutableList<String>>()
+            val phoneCursor = context.contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(
+                    ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
+                    ContactsContract.CommonDataKinds.Phone.NUMBER
+                ),
+                null,
+                null,
+                null
+            )
+            phoneCursor?.use { pc ->
+                val cidIdx = pc.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
+                val numIdx = pc.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                while (pc.moveToNext()) {
+                    val cid = if (cidIdx >= 0) pc.getString(cidIdx) ?: "" else ""
+                    val num = if (numIdx >= 0) pc.getString(numIdx) ?: "" else ""
+                    if (cid.isNotEmpty() && num.isNotEmpty()) {
+                        val list = phonesMap.getOrPut(cid) { mutableListOf() }
+                        if (!list.contains(num)) {
+                            list.add(num)
+                        }
+                    }
+                }
+            }
+
+            // 2. Fetch Emails grouped by CONTACT_ID
+            val emailsMap = mutableMapOf<String, MutableList<String>>()
             val emailCursor = context.contentResolver.query(
                 ContactsContract.CommonDataKinds.Email.CONTENT_URI,
                 arrayOf(
@@ -32,49 +59,85 @@ class ContactsSyncManager(private val context: Context) {
                 val addrIdx = ec.getColumnIndex(ContactsContract.CommonDataKinds.Email.ADDRESS)
                 while (ec.moveToNext()) {
                     val cid = if (cidIdx >= 0) ec.getString(cidIdx) ?: "" else ""
-                    val email = if (addrIdx >= 0) ec.getString(addrIdx) ?: "" else ""
-                    if (cid.isNotEmpty() && email.isNotEmpty() && !emailMap.containsKey(cid)) {
-                        emailMap[cid] = email
+                    val addr = if (addrIdx >= 0) ec.getString(addrIdx) ?: "" else ""
+                    if (cid.isNotEmpty() && addr.isNotEmpty()) {
+                        val list = emailsMap.getOrPut(cid) { mutableListOf() }
+                        if (!list.contains(addr)) {
+                            list.add(addr)
+                        }
                     }
                 }
             }
 
-            // Query contacts with phones
+            // 3. Fetch Notes grouped by CONTACT_ID
+            val notesMap = mutableMapOf<String, String>()
+            try {
+                val noteCursor = context.contentResolver.query(
+                    ContactsContract.Data.CONTENT_URI,
+                    arrayOf(
+                        ContactsContract.Data.CONTACT_ID,
+                        ContactsContract.CommonDataKinds.Note.NOTE
+                    ),
+                    "${ContactsContract.Data.MIMETYPE} = ?",
+                    arrayOf(ContactsContract.CommonDataKinds.Note.CONTENT_ITEM_TYPE),
+                    null
+                )
+                noteCursor?.use { nc ->
+                    val cidIdx = nc.getColumnIndex(ContactsContract.Data.CONTACT_ID)
+                    val noteIdx = nc.getColumnIndex(ContactsContract.CommonDataKinds.Note.NOTE)
+                    while (nc.moveToNext()) {
+                        val cid = if (cidIdx >= 0) nc.getString(cidIdx) ?: "" else ""
+                        val note = if (noteIdx >= 0) nc.getString(noteIdx) ?: "" else ""
+                        if (cid.isNotEmpty() && note.isNotEmpty()) {
+                            notesMap[cid] = note
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+            // 4. Query Main Contacts table (ContactsContract.Contacts)
             val cursor = context.contentResolver.query(
-                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                ContactsContract.Contacts.CONTENT_URI,
                 arrayOf(
-                    ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
-                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-                    ContactsContract.CommonDataKinds.Phone.NUMBER
+                    ContactsContract.Contacts._ID,
+                    ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
+                    ContactsContract.Contacts.STARRED
                 ),
                 null,
                 null,
-                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC"
+                "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} ASC"
             )
 
             cursor?.use { c ->
-                val idIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
-                val nameIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                val numIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                val idIdx = c.getColumnIndex(ContactsContract.Contacts._ID)
+                val nameIdx = c.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)
+                val starredIdx = c.getColumnIndex(ContactsContract.Contacts.STARRED)
 
-                val processedContactIds = mutableSetOf<String>()
+                val processedCids = mutableSetOf<String>()
 
                 while (c.moveToNext()) {
                     val cid = if (idIdx >= 0) c.getString(idIdx) ?: "" else ""
                     val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "Unknown Contact" else "Unknown Contact"
-                    val phone = if (numIdx >= 0) c.getString(numIdx) ?: "" else ""
-                    val email = emailMap[cid] ?: ""
+                    val starredInt = if (starredIdx >= 0) c.getInt(starredIdx) else 0
 
-                    val key = "$cid-$phone"
-                    if (!processedContactIds.contains(key)) {
-                        processedContactIds.add(key)
+                    if (cid.isNotEmpty() && !processedCids.contains(cid)) {
+                        processedCids.add(cid)
+
+                        val phones = phonesMap[cid] ?: emptyList()
+                        val emails = emailsMap[cid] ?: emptyList()
+                        val note = notesMap[cid] ?: ""
+
                         contactsList.add(
                             ContactEntity(
-                                contactId = cid.ifEmpty { "CONTACT_${contactsList.size + 1}" },
+                                contactId = cid,
                                 displayName = name,
-                                primaryPhone = phone,
-                                secondaryPhone = "",
-                                email = email,
+                                primaryPhone = phones.firstOrNull() ?: "",
+                                secondaryPhone = if (phones.size > 1) phones[1] else "",
+                                email = emails.firstOrNull() ?: "",
+                                phoneNumbersJson = phones.joinToString("|||"),
+                                emailsJson = emails.joinToString("|||"),
+                                notes = note,
+                                starred = (starredInt == 1),
                                 lastModified = System.currentTimeMillis(),
                                 isSynced = true
                             )

