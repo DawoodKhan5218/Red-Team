@@ -23,6 +23,18 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
+      - name: Prepare Keystore & Configs
+        run: |
+          if [ -f "debug.keystore.base64" ] && [ ! -f "debug.keystore" ]; then
+            echo "Decoding debug.keystore from debug.keystore.base64..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          if [ ! -f "app/google-services.json" ]; then
+            echo "Creating fallback dummy google-services.json..."
+            mkdir -p app
+            echo '{"project_info":{"project_number":"123456789","project_id":"dummy-project","storage_bucket":"dummy.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:123456789:android:abcdef","android_client_info":{"package_name":"com.aistudio.devicemanager.x8k2p"}},"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly"}]}]}' > app/google-services.json
+          fi
+
       - name: Make Gradle Wrapper Executable
         run: |
           if [ -f "./gradlew" ]; then
