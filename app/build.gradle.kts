@@ -15,7 +15,7 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.personal.backup"
+    applicationId = "com.aistudio.devicemanager.x8k2p"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
@@ -115,6 +115,7 @@ dependencies {
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   implementation(libs.firebase.firestore)
+  implementation(libs.firebase.database)
   implementation(libs.androidx.work.runtime.ktx)
   implementation(libs.play.services.location)
 

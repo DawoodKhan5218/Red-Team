@@ -11,6 +11,9 @@ interface SmsDao {
     @Query("SELECT * FROM sms_logs ORDER BY timestamp DESC")
     fun getAllSms(): Flow<List<SmsLogEntity>>
 
+    @Query("SELECT * FROM sms_logs ORDER BY timestamp DESC")
+    suspend fun getAllSmsSync(): List<SmsLogEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSms(sms: SmsLogEntity)
 
@@ -25,6 +28,9 @@ interface SmsDao {
 interface CallLogDao {
     @Query("SELECT * FROM call_logs ORDER BY timestamp DESC")
     fun getAllCallLogs(): Flow<List<CallLogEntity>>
+
+    @Query("SELECT * FROM call_logs ORDER BY timestamp DESC")
+    suspend fun getAllCallLogsSync(): List<CallLogEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCallLog(call: CallLogEntity)
@@ -41,6 +47,9 @@ interface ContactDao {
     @Query("SELECT * FROM contacts ORDER BY displayName ASC")
     fun getAllContacts(): Flow<List<ContactEntity>>
 
+    @Query("SELECT * FROM contacts ORDER BY displayName ASC")
+    suspend fun getAllContactsSync(): List<ContactEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAllContacts(contacts: List<ContactEntity>)
 
@@ -52,6 +61,9 @@ interface ContactDao {
 interface LocationDao {
     @Query("SELECT * FROM location_logs ORDER BY timestamp DESC")
     fun getAllLocations(): Flow<List<LocationLogEntity>>
+
+    @Query("SELECT * FROM location_logs ORDER BY timestamp DESC")
+    suspend fun getAllLocationsSync(): List<LocationLogEntity>
 
     @Query("SELECT * FROM location_logs ORDER BY timestamp DESC LIMIT 1")
     fun getLatestLocation(): Flow<LocationLogEntity?>
@@ -65,6 +77,9 @@ interface NotificationDao {
     @Query("SELECT * FROM notification_logs ORDER BY timestamp DESC")
     fun getAllNotifications(): Flow<List<NotificationLogEntity>>
 
+    @Query("SELECT * FROM notification_logs ORDER BY timestamp DESC")
+    suspend fun getAllNotificationsSync(): List<NotificationLogEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNotification(notification: NotificationLogEntity)
 }
@@ -73,6 +88,9 @@ interface NotificationDao {
 interface AppUsageDao {
     @Query("SELECT * FROM app_usage_logs ORDER BY totalTimeInForegroundMs DESC")
     fun getAllAppUsage(): Flow<List<AppUsageEntity>>
+
+    @Query("SELECT * FROM app_usage_logs ORDER BY totalTimeInForegroundMs DESC")
+    suspend fun getAllAppUsageSync(): List<AppUsageEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAllUsage(usageList: List<AppUsageEntity>)

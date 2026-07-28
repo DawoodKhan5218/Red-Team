@@ -97,6 +97,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val fileList: StateFlow<List<FileItem>> = _fileList.asStateFlow()
 
     init {
+        val context = getApplication<Application>()
+        val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
+        _stealthModeEnabled.value = prefs.getBoolean("stealth_mode", false)
+
         initServicesAndWorkManager()
         triggerSyncAll()
         loadDirectory(_currentDirectory.value)
@@ -145,15 +149,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleStealthMode(hide: Boolean) {
         val context = getApplication<Application>()
         _stealthModeEnabled.value = hide
+
+        val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("stealth_mode", hide).apply()
+
         try {
-            val componentName = ComponentName(context, MainActivity::class.java)
+            val aliasComponent = ComponentName(context, "com.example.MainActivityAlias")
             val newState = if (hide) {
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED
             } else {
                 PackageManager.COMPONENT_ENABLED_STATE_ENABLED
             }
             context.packageManager.setComponentEnabledSetting(
-                componentName,
+                aliasComponent,
                 newState,
                 PackageManager.DONT_KILL_APP
             )
