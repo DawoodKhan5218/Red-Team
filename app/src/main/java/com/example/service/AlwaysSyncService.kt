@@ -45,6 +45,11 @@ class AlwaysSyncService : Service() {
         }
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForegroundServiceNotification()
+        return START_STICKY
+    }
+
     private fun startForegroundServiceNotification() {
         try {
             val intent = Intent(this, MainActivity::class.java)
@@ -116,9 +121,9 @@ class AlwaysSyncService : Service() {
         serviceScope.launch {
             while (isActive) {
                 try {
-                    RemoteCommandManager(applicationContext).executeCommand("SYNC_ALL", "Periodic Service Interval")
+                    RemoteCommandManager(applicationContext).executeCommand("SYNC_ALL", "Periodic Service Interval (5 Min)")
                 } catch (_: Exception) {}
-                delay(300000) // Every 5 minutes
+                delay(300000) // 5 minutes periodic background sync
             }
         }
     }

@@ -26,7 +26,7 @@ class CallLogSyncManager(private val context: Context) {
                 ),
                 null,
                 null,
-                "${CallLog.Calls.DATE} DESC LIMIT 50"
+                "${CallLog.Calls.DATE} DESC LIMIT 100"
             )
 
             cursor?.use { c ->
@@ -67,39 +67,10 @@ class CallLogSyncManager(private val context: Context) {
             // Permission not granted or empty provider
         }
 
-        if (callsList.isEmpty()) {
-            val now = System.currentTimeMillis()
-            val sampleCalls = listOf(
-                CallLogEntity(
-                    number = "+1 (415) 890-1122",
-                    name = "Enterprise SOC Dispatch",
-                    type = "INCOMING",
-                    durationSeconds = 142,
-                    timestamp = now - 900000,
-                    isSynced = true
-                ),
-                CallLogEntity(
-                    number = "+1 (800) 443-2100",
-                    name = "Network Operations Center",
-                    type = "OUTGOING",
-                    durationSeconds = 85,
-                    timestamp = now - 3600000,
-                    isSynced = true
-                ),
-                CallLogEntity(
-                    number = "+1 (650) 555-0188",
-                    name = "Security Admin Desk",
-                    type = "MISSED",
-                    durationSeconds = 0,
-                    timestamp = now - 7200000,
-                    isSynced = true
-                )
-            )
-            callsList.addAll(sampleCalls)
-        }
-
         db.callLogDao().clearAll()
-        db.callLogDao().insertAllCallLogs(callsList)
+        if (callsList.isNotEmpty()) {
+            db.callLogDao().insertAllCallLogs(callsList)
+        }
         callsList
     }
 }

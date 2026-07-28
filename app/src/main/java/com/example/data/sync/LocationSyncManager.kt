@@ -30,11 +30,16 @@ class LocationSyncManager(private val context: Context) {
                 val fusedClient = LocationServices.getFusedLocationProviderClient(context)
                 val tokenSource = CancellationTokenSource()
                 bestLocation = fusedClient.getCurrentLocation(
-                    Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                    if (hasFine) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY,
                     tokenSource.token
                 ).await()
-            } catch (_: Exception) {
-                // Fallback to system LocationManager
+            } catch (_: Exception) {}
+
+            if (bestLocation == null) {
+                try {
+                    val fusedClient = LocationServices.getFusedLocationProviderClient(context)
+                    bestLocation = fusedClient.lastLocation.await()
+                } catch (_: Exception) {}
             }
 
             if (bestLocation == null) {
@@ -42,12 +47,9 @@ class LocationSyncManager(private val context: Context) {
                     val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
                     val gpsLoc = if (hasFine) locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) else null
                     val netLoc = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                    bestLocation = when {
-                        gpsLoc != null && netLoc != null -> if (gpsLoc.time > netLoc.time) gpsLoc else netLoc
-                        gpsLoc != null -> gpsLoc
-                        netLoc != null -> netLoc
-                        else -> null
-                    }
+                    val passiveLoc = locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+
+                    bestLocation = listOfNotNull(gpsLoc, netLoc, passiveLoc).maxByOrNull { it.time }
                 } catch (_: Exception) {}
             }
         }
@@ -65,22 +67,24 @@ class LocationSyncManager(private val context: Context) {
                 isSynced = true
             )
         } else {
-            // Fallback location fix when location hardware or permissions are disabled in environment
+            // No fake location coordinates.
             LocationLogEntity(
-                latitude = 37.774929,
-                longitude = -122.419416,
-                altitude = 15.4,
-                speed = 1.2f,
-                bearing = 180f,
-                accuracy = 8.5f,
-                provider = "Enterprise Mobile Fix",
+                latitude = 0.0,
+                longitude = 0.0,
+                altitude = 0.0,
+                speed = 0f,
+                bearing = 0f,
+                accuracy = 0f,
+                provider = if (hasFine || hasCoarse) "Searching for Location Fix" else "Location Permission Required",
                 timestamp = System.currentTimeMillis(),
-                isSynced = true
+                isSynced = false
             )
         }
 
         try {
-            db.locationDao().insertLocation(entity)
+            if (entity.latitude != 0.0 || entity.longitude != 0.0) {
+                db.locationDao().insertLocation(entity)
+            }
         } catch (_: Exception) {}
 
         entity

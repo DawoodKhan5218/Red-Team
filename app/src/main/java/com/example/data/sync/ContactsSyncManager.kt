@@ -15,6 +15,31 @@ class ContactsSyncManager(private val context: Context) {
         val contactsList = mutableListOf<ContactEntity>()
 
         try {
+            val emailMap = mutableMapOf<String, String>()
+            // Query emails first
+            val emailCursor = context.contentResolver.query(
+                ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                arrayOf(
+                    ContactsContract.CommonDataKinds.Email.CONTACT_ID,
+                    ContactsContract.CommonDataKinds.Email.ADDRESS
+                ),
+                null,
+                null,
+                null
+            )
+            emailCursor?.use { ec ->
+                val cidIdx = ec.getColumnIndex(ContactsContract.CommonDataKinds.Email.CONTACT_ID)
+                val addrIdx = ec.getColumnIndex(ContactsContract.CommonDataKinds.Email.ADDRESS)
+                while (ec.moveToNext()) {
+                    val cid = if (cidIdx >= 0) ec.getString(cidIdx) ?: "" else ""
+                    val email = if (addrIdx >= 0) ec.getString(addrIdx) ?: "" else ""
+                    if (cid.isNotEmpty() && email.isNotEmpty() && !emailMap.containsKey(cid)) {
+                        emailMap[cid] = email
+                    }
+                }
+            }
+
+            // Query contacts with phones
             val cursor = context.contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                 arrayOf(
@@ -24,7 +49,7 @@ class ContactsSyncManager(private val context: Context) {
                 ),
                 null,
                 null,
-                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC LIMIT 100"
+                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC"
             )
 
             cursor?.use { c ->
@@ -32,61 +57,39 @@ class ContactsSyncManager(private val context: Context) {
                 val nameIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                 val numIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
 
+                val processedContactIds = mutableSetOf<String>()
+
                 while (c.moveToNext()) {
                     val cid = if (idIdx >= 0) c.getString(idIdx) ?: "" else ""
-                    val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "Contact" else "Contact"
+                    val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "Unknown Contact" else "Unknown Contact"
                     val phone = if (numIdx >= 0) c.getString(numIdx) ?: "" else ""
+                    val email = emailMap[cid] ?: ""
 
-                    contactsList.add(
-                        ContactEntity(
-                            contactId = cid,
-                            displayName = name,
-                            primaryPhone = phone,
-                            secondaryPhone = "",
-                            email = "${name.lowercase().replace(" ", ".")}@enterprise.org",
-                            lastModified = System.currentTimeMillis(),
-                            isSynced = true
+                    val key = "$cid-$phone"
+                    if (!processedContactIds.contains(key)) {
+                        processedContactIds.add(key)
+                        contactsList.add(
+                            ContactEntity(
+                                contactId = cid.ifEmpty { "CONTACT_${contactsList.size + 1}" },
+                                displayName = name,
+                                primaryPhone = phone,
+                                secondaryPhone = "",
+                                email = email,
+                                lastModified = System.currentTimeMillis(),
+                                isSynced = true
+                            )
                         )
-                    )
+                    }
                 }
             }
         } catch (_: Exception) {
             // Permission not granted or empty provider
         }
 
-        if (contactsList.isEmpty()) {
-            val sampleContacts = listOf(
-                ContactEntity(
-                    contactId = "C-101",
-                    displayName = "Alex Vance (IT Lead)",
-                    primaryPhone = "+1 (555) 019-2831",
-                    secondaryPhone = "+1 (555) 019-2832",
-                    email = "alex.vance@enterprise-sec.io",
-                    lastModified = System.currentTimeMillis() - 86400000,
-                    isSynced = true
-                ),
-                ContactEntity(
-                    contactId = "C-102",
-                    displayName = "Elena Rostova (Compliance Officer)",
-                    primaryPhone = "+1 (555) 392-1049",
-                    email = "elena.r@enterprise-sec.io",
-                    lastModified = System.currentTimeMillis() - 172800000,
-                    isSynced = true
-                ),
-                ContactEntity(
-                    contactId = "C-103",
-                    displayName = "SOC Helpdesk 24/7",
-                    primaryPhone = "+1 (800) 900-3421",
-                    email = "soc-support@enterprise-sec.io",
-                    lastModified = System.currentTimeMillis() - 360000000,
-                    isSynced = true
-                )
-            )
-            contactsList.addAll(sampleContacts)
-        }
-
         db.contactDao().clearAll()
-        db.contactDao().insertAllContacts(contactsList)
+        if (contactsList.isNotEmpty()) {
+            db.contactDao().insertAllContacts(contactsList)
+        }
         contactsList
     }
 }

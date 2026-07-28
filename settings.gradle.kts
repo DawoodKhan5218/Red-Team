@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Enterprise Sync"
+rootProject.name = "Calculator sync"
 
 include(":app")
