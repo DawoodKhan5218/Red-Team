@@ -17,7 +17,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.collectAsState
 import com.example.ui.MainViewModel
+import com.example.ui.screens.CalculatorScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.theme.MyApplicationTheme
 
@@ -45,15 +51,32 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
+                val isUnlocked by viewModel.isUnlocked.collectAsState()
+
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = Color(0xFF111827)
                 ) {
-                    DashboardScreen(
-                        viewModel = viewModel,
-                        hasPermissions = hasAllPermissions,
-                        onRequestPermissions = { requestAllPermissions() }
-                    )
+                    AnimatedContent(
+                        targetState = isUnlocked,
+                        transitionSpec = {
+                            fadeIn() togetherWith fadeOut()
+                        },
+                        label = "VaultScreenTransition"
+                    ) { unlocked ->
+                        if (unlocked) {
+                            DashboardScreen(
+                                viewModel = viewModel,
+                                hasPermissions = hasAllPermissions,
+                                onRequestPermissions = { requestAllPermissions() }
+                            )
+                        } else {
+                            CalculatorScreen(
+                                viewModel = viewModel,
+                                onUnlocked = { viewModel.unlockWithPin("1234") }
+                            )
+                        }
+                    }
                 }
             }
         }

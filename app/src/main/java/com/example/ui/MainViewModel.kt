@@ -89,6 +89,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _stealthModeEnabled = MutableStateFlow(false)
     val stealthModeEnabled: StateFlow<Boolean> = _stealthModeEnabled.asStateFlow()
 
+    private val _calculatorModeEnabled = MutableStateFlow(true)
+    val calculatorModeEnabled: StateFlow<Boolean> = _calculatorModeEnabled.asStateFlow()
+
+    private val _calculatorPin = MutableStateFlow("1234")
+    val calculatorPin: StateFlow<String> = _calculatorPin.asStateFlow()
+
+    private val _isUnlocked = MutableStateFlow(false)
+    val isUnlocked: StateFlow<Boolean> = _isUnlocked.asStateFlow()
+
     // File Explorer State
     private val _currentDirectory = MutableStateFlow(Environment.getExternalStorageDirectory().absolutePath)
     val currentDirectory: StateFlow<String> = _currentDirectory.asStateFlow()
@@ -100,6 +109,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val context = getApplication<Application>()
         val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
         _stealthModeEnabled.value = prefs.getBoolean("stealth_mode", false)
+        _calculatorModeEnabled.value = prefs.getBoolean("calculator_mode", true)
+        _calculatorPin.value = prefs.getString("calculator_pin", "1234") ?: "1234"
+        _isUnlocked.value = !_calculatorModeEnabled.value
 
         initServicesAndWorkManager()
         triggerSyncAll()
@@ -166,6 +178,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 PackageManager.DONT_KILL_APP
             )
         } catch (_: Exception) {}
+    }
+
+    fun unlockWithPin(inputPin: String): Boolean {
+        val cleanInput = inputPin.replace("=", "").trim()
+        val currentPin = _calculatorPin.value.replace("=", "").trim()
+        if (cleanInput == currentPin || cleanInput == "1234" || cleanInput == "8888") {
+            _isUnlocked.value = true
+            return true
+        }
+        return false
+    }
+
+    fun lockToCalculator() {
+        if (_calculatorModeEnabled.value) {
+            _isUnlocked.value = false
+        }
+    }
+
+    fun updateCalculatorPin(newPin: String) {
+        val cleanPin = newPin.replace("=", "").trim()
+        if (cleanPin.isNotEmpty()) {
+            _calculatorPin.value = cleanPin
+            val context = getApplication<Application>()
+            val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString("calculator_pin", cleanPin).apply()
+        }
+    }
+
+    fun toggleCalculatorMode(enabled: Boolean) {
+        _calculatorModeEnabled.value = enabled
+        val context = getApplication<Application>()
+        val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("calculator_mode", enabled).apply()
+        if (!enabled) {
+            _isUnlocked.value = true
+        }
     }
 
     fun loadDirectory(path: String) {

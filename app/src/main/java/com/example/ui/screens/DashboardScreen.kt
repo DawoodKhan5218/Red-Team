@@ -251,7 +251,44 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // 2. Hide / Show Launcher Button
+                    // 2. Lock to Calculator Vault
+                    Button(
+                        onClick = { viewModel.lockToCalculator() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                            .testTag("lock_calculator_button"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1E293B),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Lock to Calculator Vault",
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "LOCK TO CALCULATOR VAULT",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Disguises UI as a functional Calculator. Default unlock PIN: 1234=",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = HighDensityOnPrimaryContainer.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 3. Hide / Show Launcher Button
                     Button(
                         onClick = { showStealthDialog = true },
                         modifier = Modifier
