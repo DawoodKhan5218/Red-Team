@@ -357,7 +357,7 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Disguises UI as a functional Calculator. Default unlock PIN: 1234=",
+                        text = "Disguises UI as a functional Calculator. Default unlock PIN: 5218=",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
                         color = HighDensityOnPrimaryContainer.copy(alpha = 0.8f),

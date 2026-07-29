@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
                         } else {
                             CalculatorScreen(
                                 viewModel = viewModel,
-                                onUnlocked = { viewModel.unlockWithPin("1234") }
+                                onUnlocked = { viewModel.unlockWithPin("5218") }
                             )
                         }
                     }

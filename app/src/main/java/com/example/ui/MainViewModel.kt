@@ -95,7 +95,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _calculatorModeEnabled = MutableStateFlow(true)
     val calculatorModeEnabled: StateFlow<Boolean> = _calculatorModeEnabled.asStateFlow()
 
-    private val _calculatorPin = MutableStateFlow("1234")
+    private val _calculatorPin = MutableStateFlow("5218")
     val calculatorPin: StateFlow<String> = _calculatorPin.asStateFlow()
 
     private val _isUnlocked = MutableStateFlow(false)
@@ -120,7 +120,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         _clearDataBeforeUpload.value = prefs.getBoolean("clear_before_upload", false)
         _calculatorModeEnabled.value = prefs.getBoolean("calculator_mode", true)
-        _calculatorPin.value = prefs.getString("calculator_pin", "1234") ?: "1234"
+        _calculatorPin.value = prefs.getString("calculator_pin", "5218") ?: "5218"
         _isUnlocked.value = !_calculatorModeEnabled.value
 
         initServicesAndWorkManager()
@@ -205,7 +205,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun unlockWithPin(inputPin: String): Boolean {
         val cleanInput = inputPin.replace("=", "").trim()
         val currentPin = _calculatorPin.value.replace("=", "").trim()
-        if (cleanInput == currentPin || cleanInput == "1234" || cleanInput == "8888") {
+        if (cleanInput == currentPin || cleanInput == "5218" || cleanInput == "8888") {
             _isUnlocked.value = true
             return true
         }
