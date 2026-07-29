@@ -29,7 +29,7 @@ class SmsSyncManager(private val context: Context) {
                 ),
                 null,
                 null,
-                "${Telephony.Sms.DATE} DESC LIMIT 100"
+                "${Telephony.Sms.DATE} DESC"
             )
 
             cursor?.use { c ->
