@@ -171,12 +171,27 @@ class DeviceInfoSyncManager(private val context: Context) {
         val totalStorageMb = (statFs.totalBytes / (1024 * 1024))
         val freeStorageMb = (statFs.availableBytes / (1024 * 1024))
 
-        // Wi-Fi Info
+        // Wi-Fi Info using ConnectivityManager & WifiManager
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val activeNet = cm?.activeNetwork
+        val caps = cm?.getNetworkCapabilities(activeNet)
+        val isWifiActive = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+
         val wifiInfo = wifiManager.connectionInfo
         val rawSsid = wifiInfo?.ssid?.replace("\"", "")
-        val wifiSsid = if (!rawSsid.isNullOrEmpty() && rawSsid != "<unknown ssid>") rawSsid else "Not Connected"
+        val ssidFromWifi = if (!rawSsid.isNullOrEmpty() && rawSsid != "<unknown ssid>") rawSsid else null
+
+        val wifiSsid = when {
+            ssidFromWifi != null -> ssidFromWifi
+            isWifiActive -> "Connected Wi-Fi"
+            else -> "Not connected"
+        }
+
+        val wifiConnected = isWifiActive || (wifiManager.isWifiEnabled && wifiInfo != null && rawSsid != null && rawSsid != "<unknown ssid>")
+        val wifiStateStr = if (wifiConnected) "CONNECTED" else "DISCONNECTED"
+
         val wifiBssid = wifiInfo?.bssid?.takeIf { it != "02:00:00:00:00:00" } ?: "N/A"
-        val wifiRssi = if (wifiSsid != "Not Connected") (wifiInfo?.rssi ?: 0) else 0
+        val wifiRssi = if (wifiConnected) (wifiInfo?.rssi ?: 0) else 0
         val localIp = getLocalIpAddress()
         val macAddress = getMacAddress()
 

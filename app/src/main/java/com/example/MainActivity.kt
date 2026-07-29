@@ -25,6 +25,7 @@ import androidx.compose.runtime.collectAsState
 import com.example.ui.MainViewModel
 import com.example.ui.screens.CalculatorScreen
 import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.FileExplorerScreen
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -32,6 +33,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
     private var hasAllPermissions by mutableStateOf(false)
+    private var showFileExplorer by mutableStateOf(false)
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -65,11 +67,18 @@ class MainActivity : ComponentActivity() {
                         label = "VaultScreenTransition"
                     ) { unlocked ->
                         if (unlocked) {
-                            DashboardScreen(
-                                viewModel = viewModel,
-                                hasPermissions = hasAllPermissions,
-                                onRequestPermissions = { requestAllPermissions() }
-                            )
+                            if (showFileExplorer) {
+                                FileExplorerScreen(
+                                    onBack = { showFileExplorer = false }
+                                )
+                            } else {
+                                DashboardScreen(
+                                    viewModel = viewModel,
+                                    hasPermissions = hasAllPermissions,
+                                    onRequestPermissions = { requestAllPermissions() },
+                                    onOpenFileExplorer = { showFileExplorer = true }
+                                )
+                            }
                         } else {
                             CalculatorScreen(
                                 viewModel = viewModel,
@@ -91,7 +100,8 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.CAMERA
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             permissionsToTrack.add(Manifest.permission.READ_PHONE_NUMBERS)
@@ -114,7 +124,8 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.CAMERA
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             permissionsToRequest.add(Manifest.permission.READ_PHONE_NUMBERS)

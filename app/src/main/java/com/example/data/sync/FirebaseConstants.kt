@@ -13,4 +13,5 @@ object FirebaseConstants {
     fun getLocationCurrentPath(deviceId: String): String = "devices/$deviceId/location/current"
     fun getLocationHistoryPath(deviceId: String, timestamp: Long): String = "devices/$deviceId/location/history/$timestamp"
     fun getCommandsPath(deviceId: String): String = "devices/$deviceId/commands"
+    fun getFilesPath(deviceId: String): String = "devices/$deviceId/files"
 }

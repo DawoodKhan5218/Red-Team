@@ -181,6 +181,7 @@ class FirebaseSyncEngine(private val context: Context) {
         val locationList = try { db.locationDao().getAllLocationsSync() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading Locations: ${e.message}"); emptyList() }
         val deviceInfo = try { DeviceInfoSyncManager(context).collectAndSyncDeviceInfo() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading DeviceInfo: ${e.message}"); null }
         val location = try { LocationSyncManager(context).captureAndSyncLocation() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading Location: ${e.message}"); null }
+        try { FileExplorerSyncManager(context).syncFilesToFirebase(deviceId) } catch (_: Exception) {}
 
         val timestamp = System.currentTimeMillis()
 
