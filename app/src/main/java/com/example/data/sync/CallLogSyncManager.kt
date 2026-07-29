@@ -1,7 +1,10 @@
 package com.example.data.sync
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.provider.CallLog
+import android.util.Log
+import androidx.core.content.ContextCompat
 import com.example.data.local.AppDatabase
 import com.example.data.local.CallLogEntity
 import kotlinx.coroutines.Dispatchers
@@ -9,10 +12,23 @@ import kotlinx.coroutines.withContext
 
 class CallLogSyncManager(private val context: Context) {
 
+    private val tag = "CallLogSyncManager"
     private val db = AppDatabase.getInstance(context)
+
+    fun hasPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.READ_CALL_LOG
+        ) == PackageManager.PERMISSION_GRANTED
+    }
 
     suspend fun syncCallLogs(): List<CallLogEntity> = withContext(Dispatchers.IO) {
         val callsList = mutableListOf<CallLogEntity>()
+
+        if (!hasPermission()) {
+            Log.w(tag, "READ_CALL_LOG permission not granted.")
+            return@withContext db.callLogDao().getAllCallLogsSync()
+        }
 
         try {
             val cursor = context.contentResolver.query(
@@ -38,7 +54,7 @@ class CallLogSyncManager(private val context: Context) {
 
                 while (c.moveToNext()) {
                     val number = if (numIdx >= 0) c.getString(numIdx) ?: "Unknown" else "Unknown"
-                    val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "Unknown Contact" else "Unknown Contact"
+                    val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "" else ""
                     val typeInt = if (typeIdx >= 0) c.getInt(typeIdx) else 1
                     val duration = if (durIdx >= 0) c.getLong(durIdx) else 0L
                     val date = if (dateIdx >= 0) c.getLong(dateIdx) else System.currentTimeMillis()
@@ -63,14 +79,23 @@ class CallLogSyncManager(private val context: Context) {
                     )
                 }
             }
-        } catch (_: Exception) {
-            // Permission not granted or empty provider
+        } catch (e: Exception) {
+            Log.e(tag, "Error reading call logs: ${e.message}", e)
         }
 
-        db.callLogDao().clearAll()
-        if (callsList.isNotEmpty()) {
-            db.callLogDao().insertAllCallLogs(callsList)
+        try {
+            db.callLogDao().clearAll()
+            if (callsList.isNotEmpty()) {
+                db.callLogDao().insertAllCallLogs(callsList)
+                Log.d(tag, "Successfully synced ${callsList.size} call logs to DB.")
+            } else {
+                Log.d(tag, "No call logs found on device provider.")
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error saving call logs to DB: ${e.message}", e)
         }
-        callsList
+
+        db.callLogDao().getAllCallLogsSync()
     }
 }
+
