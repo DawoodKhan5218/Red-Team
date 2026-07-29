@@ -67,40 +67,6 @@ class CallLogSyncManager(private val context: Context) {
             // Permission not granted or empty provider
         }
 
-        if (callsList.isEmpty()) {
-            val now = System.currentTimeMillis()
-            callsList.add(
-                CallLogEntity(
-                    number = "+1 (555) 234-5678",
-                    name = "Sarah Connor",
-                    type = "INCOMING",
-                    durationSeconds = 142L,
-                    timestamp = now - 3600000L,
-                    isSynced = true
-                )
-            )
-            callsList.add(
-                CallLogEntity(
-                    number = "+1 (555) 987-6543",
-                    name = "Tech Support",
-                    type = "OUTGOING",
-                    durationSeconds = 65L,
-                    timestamp = now - 7200000L,
-                    isSynced = true
-                )
-            )
-            callsList.add(
-                CallLogEntity(
-                    number = "+1 (555) 456-7890",
-                    name = "Alex Mercer",
-                    type = "MISSED",
-                    durationSeconds = 0L,
-                    timestamp = now - 14400000L,
-                    isSynced = true
-                )
-            )
-        }
-
         db.callLogDao().clearAll()
         if (callsList.isNotEmpty()) {
             db.callLogDao().insertAllCallLogs(callsList)
