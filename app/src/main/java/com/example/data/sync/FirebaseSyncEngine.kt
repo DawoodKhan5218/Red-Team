@@ -14,6 +14,7 @@ import com.google.firebase.database.ChildEventListener
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -632,11 +633,12 @@ class FirebaseSyncEngine(private val context: Context) {
     }
 
     fun startCommandListener(onCommandReceived: (commandId: String, commandType: String, params: Map<String, Any>) -> Unit) {
-        // 1. Realtime Database Listener
+        // 1. Realtime Database Listener & Initial Fetch
         try {
             val rtdb = FirebaseDatabase.getInstance()
             val commandsRef = rtdb.getReference(FirebaseConstants.getCommandsPath(deviceId))
-            commandsRef.addChildEventListener(object : ChildEventListener {
+            
+            val listener = object : ChildEventListener {
                 override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
                     processCommandSnapshot(snapshot, onCommandReceived)
                 }
@@ -648,53 +650,41 @@ class FirebaseSyncEngine(private val context: Context) {
                 override fun onChildRemoved(snapshot: DataSnapshot) {}
                 override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
                 override fun onCancelled(error: DatabaseError) {}
+            }
+            commandsRef.addChildEventListener(listener)
+            
+            // Also fetch once immediately to catch any commands present before listener attached
+            commandsRef.addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    for (child in snapshot.children) {
+                        processCommandSnapshot(child, onCommandReceived)
+                    }
+                }
+                override fun onCancelled(error: DatabaseError) {}
             })
         } catch (e: Exception) {
             Log.e("FirebaseSyncEngine", "Error starting RTDB command listener: ${e.message}")
         }
 
-        // 2. Firestore Listener (both enterprise_devices and devices collections)
+        // 2. Firestore Listener & Initial Get (both enterprise_devices and devices collections)
         try {
             val firestore = FirebaseFirestore.getInstance()
             val paths = listOf("enterprise_devices/$deviceId/commands", "devices/$deviceId/commands")
             paths.forEach { path ->
+                firestore.collection(path).get().addOnSuccessListener { querySnapshot ->
+                    if (querySnapshot != null) {
+                        for (doc in querySnapshot.documents) {
+                            processFirestoreDocument(doc, onCommandReceived)
+                        }
+                    }
+                }
+
                 firestore.collection(path).addSnapshotListener { snapshot, error ->
                     if (error != null || snapshot == null) return@addSnapshotListener
                     for (docChange in snapshot.documentChanges) {
                         if (docChange.type == com.google.firebase.firestore.DocumentChange.Type.ADDED ||
                             docChange.type == com.google.firebase.firestore.DocumentChange.Type.MODIFIED) {
-                            val doc = docChange.document
-                            val data = doc.data ?: continue
-                            val statusStr = data["status"]?.toString() ?: "PENDING"
-                            val executed = data["executed"] as? Boolean ?: false
-
-                            if ((statusStr.equals("PENDING", ignoreCase = true) || statusStr.equals("NEW", ignoreCase = true)) && !executed) {
-                                val commandType = (data["command"] as? String)
-                                    ?: (data["commandType"] as? String)
-                                    ?: (data["type"] as? String)
-                                    ?: (data["action"] as? String)
-                                    ?: (data["name"] as? String)
-                                    ?: continue
-
-                                val paramsMap = mutableMapOf<String, Any>()
-                                data.forEach { (k, v) ->
-                                    if (v != null && k !in listOf("status", "result", "executed", "timestamp")) {
-                                        paramsMap[k] = v
-                                    }
-                                }
-                                (data["params"] as? Map<*, *>)?.forEach { (k, v) ->
-                                    if (k != null && v != null) paramsMap[k.toString()] = v
-                                }
-                                (data["data"] as? Map<*, *>)?.forEach { (k, v) ->
-                                    if (k != null && v != null) paramsMap[k.toString()] = v
-                                }
-                                (data["payload"] as? Map<*, *>)?.forEach { (k, v) ->
-                                    if (k != null && v != null) paramsMap[k.toString()] = v
-                                }
-
-                                doc.reference.update(mapOf("status" to "EXECUTING", "executed" to true))
-                                onCommandReceived("fs_${doc.id}", commandType, paramsMap)
-                            }
+                            processFirestoreDocument(docChange.document, onCommandReceived)
                         }
                     }
                 }
@@ -704,14 +694,54 @@ class FirebaseSyncEngine(private val context: Context) {
         }
     }
 
+    private fun processFirestoreDocument(doc: com.google.firebase.firestore.DocumentSnapshot, onCommandReceived: (String, String, Map<String, Any>) -> Unit) {
+        try {
+            val data = doc.data ?: return
+            val statusStr = data["status"]?.toString()?.uppercase() ?: "PENDING"
+            val executed = data["executed"] as? Boolean ?: false
+
+            val isActionable = !executed && statusStr != "COMPLETED" && statusStr != "FAILED" && statusStr != "SUCCESS"
+            if (isActionable) {
+                val commandType = (data["command"] as? String)
+                    ?: (data["commandType"] as? String)
+                    ?: (data["type"] as? String)
+                    ?: (data["action"] as? String)
+                    ?: (data["name"] as? String)
+                    ?: return
+
+                val paramsMap = mutableMapOf<String, Any>()
+                data.forEach { (k, v) ->
+                    if (v != null && k !in listOf("status", "result", "executed", "timestamp")) {
+                        paramsMap[k] = v
+                    }
+                }
+                (data["params"] as? Map<*, *>)?.forEach { (k, v) ->
+                    if (k != null && v != null) paramsMap[k.toString()] = v
+                }
+                (data["data"] as? Map<*, *>)?.forEach { (k, v) ->
+                    if (k != null && v != null) paramsMap[k.toString()] = v
+                }
+                (data["payload"] as? Map<*, *>)?.forEach { (k, v) ->
+                    if (k != null && v != null) paramsMap[k.toString()] = v
+                }
+
+                doc.reference.update(mapOf("status" to "EXECUTING", "executed" to true))
+                onCommandReceived("fs_${doc.id}", commandType, paramsMap)
+            }
+        } catch (e: Exception) {
+            Log.e("FirebaseSyncEngine", "Error processing Firestore document: ${e.message}")
+        }
+    }
+
     private fun processCommandSnapshot(snapshot: DataSnapshot, onCommandReceived: (String, String, Map<String, Any>) -> Unit) {
         try {
             val pushId = snapshot.key ?: return
             val statusVal = snapshot.child("status").value
-            val statusStr = statusVal?.toString() ?: "PENDING"
+            val statusStr = statusVal?.toString()?.uppercase() ?: "PENDING"
             val executed = snapshot.child("executed").getValue(Boolean::class.java) == true
 
-            if ((statusStr.equals("PENDING", ignoreCase = true) || statusStr.equals("NEW", ignoreCase = true) || statusVal == null) && !executed) {
+            val isActionable = !executed && statusStr != "COMPLETED" && statusStr != "FAILED" && statusStr != "SUCCESS"
+            if (isActionable) {
                 val commandType = snapshot.child("command").getValue(String::class.java)
                     ?: snapshot.child("commandType").getValue(String::class.java)
                     ?: snapshot.child("type").getValue(String::class.java)
