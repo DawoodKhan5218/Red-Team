@@ -536,6 +536,22 @@ fun DashboardScreen(
                             Text("Notification Listener", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                            } catch (_: Exception) {}
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = HighDensityPrimary),
+                        border = BorderStroke(1.dp, HighDensityOutline)
+                    ) {
+                        Text("Grant Usage Stats Access Permission", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }

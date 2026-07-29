@@ -86,11 +86,16 @@ class MainActivity : ComponentActivity() {
         val permissionsToTrack = mutableListOf(
             Manifest.permission.READ_SMS,
             Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.SEND_SMS,
             Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            permissionsToTrack.add(Manifest.permission.READ_PHONE_NUMBERS)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionsToTrack.add(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -104,11 +109,16 @@ class MainActivity : ComponentActivity() {
         val permissionsToRequest = mutableListOf(
             Manifest.permission.READ_SMS,
             Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.SEND_SMS,
             Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            permissionsToRequest.add(Manifest.permission.READ_PHONE_NUMBERS)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
         }

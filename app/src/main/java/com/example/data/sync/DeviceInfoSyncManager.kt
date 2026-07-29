@@ -76,12 +76,32 @@ class DeviceInfoSyncManager(private val context: Context) {
                     carrierName = carriers.joinToString(" / ")
                 }
 
-                val numbers = activeSubList.mapNotNull { it.number?.ifEmpty { null } }.distinct()
+                val numbers = activeSubList.mapNotNull { subInfo ->
+                    var num: String? = null
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && subManager != null) {
+                        try {
+                            num = subManager.getPhoneNumber(subInfo.subscriptionId)?.takeIf { it.isNotBlank() }
+                        } catch (_: Exception) {}
+                    }
+                    if (num == null) {
+                        try {
+                            @Suppress("DEPRECATION")
+                            num = subInfo.number?.takeIf { it.isNotBlank() }
+                        } catch (_: Exception) {}
+                    }
+                    if (num == null) {
+                        try {
+                            val subTelephony = telephonyManager.createForSubscriptionId(subInfo.subscriptionId)
+                            num = subTelephony.line1Number?.takeIf { it.isNotBlank() }
+                        } catch (_: Exception) {}
+                    }
+                    num
+                }.distinct()
+
                 if (numbers.isNotEmpty()) {
                     phoneNumber = numbers.joinToString(" / ")
                 } else {
-                    val firstSub = activeSubList.first()
-                    phoneNumber = firstSub.number?.ifEmpty { "N/A" } ?: "N/A"
+                    phoneNumber = "N/A"
                 }
 
                 val subInfo = activeSubList.first()

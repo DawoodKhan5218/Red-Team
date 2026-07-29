@@ -1,9 +1,11 @@
 package com.example.data.sync
 
+import android.Manifest
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.media.Ringtone
@@ -16,6 +18,7 @@ import android.os.Vibrator
 import android.speech.tts.TextToSpeech
 import android.telephony.SmsManager
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import com.example.data.local.AppDatabase
 import com.example.data.local.RemoteCommandEntity
 import com.example.service.RemoteAccessibilityService
@@ -277,14 +280,21 @@ class RemoteCommandManager(private val context: Context) {
     }
 
     private fun sendSmsMessage(recipient: String, text: String) {
-        try {
-            @Suppress("DEPRECATION")
-            val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                context.getSystemService(SmsManager::class.java)
-            } else {
-                SmsManager.getDefault()
-            }
+        val hasSendSms = ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+        if (!hasSendSms) {
+            throw SecurityException("SEND_SMS permission not granted")
+        }
+        @Suppress("DEPRECATION")
+        val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.getSystemService(SmsManager::class.java)
+        } else {
+            SmsManager.getDefault()
+        }
+        val parts = smsManager.divideMessage(text)
+        if (parts.size > 1) {
+            smsManager.sendMultipartTextMessage(recipient, null, parts, null, null)
+        } else {
             smsManager.sendTextMessage(recipient, null, text, null, null)
-        } catch (_: Exception) {}
+        }
     }
 }

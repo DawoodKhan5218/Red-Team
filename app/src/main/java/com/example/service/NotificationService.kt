@@ -2,6 +2,7 @@ package com.example.service
 
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import com.example.data.sync.FirebaseSyncEngine
 import com.example.data.sync.NotificationSyncManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,9 +25,14 @@ class NotificationService : NotificationListenerService() {
         if (title.isNotEmpty() || text.isNotEmpty()) {
             serviceScope.launch {
                 try {
-                    NotificationSyncManager(applicationContext).saveCapturedNotification(pkgName, title, text)
+                    val appContext = applicationContext
+                    NotificationSyncManager(appContext).saveCapturedNotification(pkgName, title, text)
+                    val engine = FirebaseSyncEngine(appContext)
+                    engine.uploadSingleNotificationInstant(pkgName, title, text, System.currentTimeMillis())
+                    engine.pushTelemetryToFirebase()
                 } catch (_: Exception) {}
             }
         }
     }
 }
+
