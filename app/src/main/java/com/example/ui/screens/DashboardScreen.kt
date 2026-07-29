@@ -28,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SatelliteAlt
@@ -81,8 +80,7 @@ import java.util.Locale
 fun DashboardScreen(
     viewModel: MainViewModel,
     hasPermissions: Boolean,
-    onRequestPermissions: () -> Unit,
-    onOpenFileExplorer: () -> Unit
+    onRequestPermissions: () -> Unit
 ) {
     val isSyncing by viewModel.isSyncing.collectAsState()
     val lastSyncTime by viewModel.lastSyncTime.collectAsState()
@@ -553,19 +551,6 @@ fun DashboardScreen(
                         border = BorderStroke(1.dp, HighDensityOutline)
                     ) {
                         Text("Grant Usage Stats Access Permission", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Button(
-                        onClick = onOpenFileExplorer,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = HighDensityPrimary)
-                    ) {
-                        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Open File Explorer", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
