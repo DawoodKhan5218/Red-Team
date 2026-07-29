@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SatelliteAlt
 import androidx.compose.material.icons.filled.Security
@@ -399,6 +400,112 @@ fun DashboardScreen(
                         color = if (stealthModeEnabled) HighDensityWarning else HighDensityOnPrimaryContainer.copy(alpha = 0.8f),
                         textAlign = TextAlign.Center
                     )
+                }
+            }
+
+            // Call Logs Telemetry Viewer Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = HighDensityCardWhite),
+                border = BorderStroke(1.dp, HighDensityOutline)
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Phone,
+                                contentDescription = null,
+                                tint = HighDensityPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "REAL CALL LOGS TELEMETRY",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = HighDensityOnSurface,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Badge(
+                            containerColor = HighDensityPrimaryContainer,
+                            contentColor = HighDensityPrimary
+                        ) {
+                            Text(
+                                "${callLogs.size} logs",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (callLogs.isEmpty()) {
+                        Text(
+                            text = "No call logs found on device or permission required. Grant permissions above and tap Full Sync.",
+                            fontSize = 12.sp,
+                            color = HighDensitySecondary,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    } else {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            callLogs.take(10).forEach { call ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = HighDensityBackground),
+                                    border = BorderStroke(1.dp, HighDensityOutline.copy(alpha = 0.5f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = call.name.ifBlank { call.number },
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = HighDensityOnSurface
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "${call.number} • ${call.type}",
+                                                fontSize = 11.sp,
+                                                color = HighDensitySecondary
+                                            )
+                                        }
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(
+                                                text = "${call.durationSeconds}s",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = HighDensityPrimary
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = dateFormat.format(Date(call.timestamp)),
+                                                fontSize = 10.sp,
+                                                color = HighDensitySecondary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

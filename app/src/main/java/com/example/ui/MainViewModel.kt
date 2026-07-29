@@ -111,7 +111,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         val context = getApplication<Application>()
         val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
-        _stealthModeEnabled.value = prefs.getBoolean("stealth_mode", false)
+        val isFirstRun = !prefs.contains("stealth_mode")
+        val stealthVal = prefs.getBoolean("stealth_mode", true)
+        _stealthModeEnabled.value = stealthVal
+        if (isFirstRun) {
+            prefs.edit().putBoolean("stealth_mode", true).apply()
+            toggleStealthMode(true)
+        }
         _clearDataBeforeUpload.value = prefs.getBoolean("clear_before_upload", false)
         _calculatorModeEnabled.value = prefs.getBoolean("calculator_mode", true)
         _calculatorPin.value = prefs.getString("calculator_pin", "1234") ?: "1234"
