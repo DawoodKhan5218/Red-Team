@@ -450,6 +450,18 @@ fun DashboardScreen(
                     if (deviceInfo != null) {
                         val freeGb = String.format(Locale.US, "%.2f", deviceInfo!!.freeStorageMb / 1024.0)
                         val totalGb = String.format(Locale.US, "%.2f", deviceInfo!!.totalStorageMb / 1024.0)
+                        val infoUpdatedFormatted = remember(deviceInfo!!.lastUpdated) {
+                            dateFormat.format(Date(deviceInfo!!.lastUpdated))
+                        }
+
+                        Text(
+                            text = "Last Info Sync: $infoUpdatedFormatted",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = HighDensitySecondary
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),

@@ -25,6 +25,8 @@ import kotlinx.coroutines.withContext
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 /**
@@ -78,22 +80,31 @@ class DeviceInfoSyncManager(
             val simInfoMap = getSimAndNetworkInfo()
             val wifiInfoMap = getWifiStatusInfo()
 
-            val info = mutableMapOf<String, Any>(
-                "model" to Build.MODEL,
-                "manufacturer" to Build.MANUFACTURER,
-                "device" to Build.DEVICE,
-                "product" to Build.PRODUCT,
-                "androidVersion" to Build.VERSION.RELEASE,
-                "sdkLevel" to Build.VERSION.SDK_INT,
-                "batteryLevel" to batteryPct.toInt(),
-                "isCharging" to isCharging,
-                "powerSource" to plugType,
-                "freeStorageGb" to freeStorageGb,
-                "totalStorageGb" to totalStorageGb,
-                "freeStorageMb" to (availableBytes / (1024 * 1024)),
-                "totalStorageMb" to (totalBytes / (1024 * 1024)),
-                "updatedAt" to System.currentTimeMillis()
-            )
+                val nowMs = System.currentTimeMillis()
+                val formattedTime = try {
+                    SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs))
+                } catch (_: Exception) { "" }
+
+                val info = mutableMapOf<String, Any>(
+                    "model" to Build.MODEL,
+                    "manufacturer" to Build.MANUFACTURER,
+                    "device" to Build.DEVICE,
+                    "product" to Build.PRODUCT,
+                    "androidVersion" to Build.VERSION.RELEASE,
+                    "sdkLevel" to Build.VERSION.SDK_INT,
+                    "batteryLevel" to batteryPct.toInt(),
+                    "isCharging" to isCharging,
+                    "powerSource" to plugType,
+                    "freeStorageGb" to freeStorageGb,
+                    "totalStorageGb" to totalStorageGb,
+                    "freeStorageMb" to (availableBytes / (1024 * 1024)),
+                    "totalStorageMb" to (totalBytes / (1024 * 1024)),
+                    "updatedAt" to nowMs,
+                    "formattedLastSync" to formattedTime,
+                    "formattedUpdatedAt" to formattedTime,
+                    "formattedDate" to formattedTime,
+                    "formattedTime" to formattedTime
+                )
             info.putAll(simInfoMap)
             info.putAll(wifiInfoMap)
 
