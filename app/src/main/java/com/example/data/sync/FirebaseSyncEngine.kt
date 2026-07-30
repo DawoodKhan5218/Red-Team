@@ -505,6 +505,10 @@ class FirebaseSyncEngine(private val context: Context) {
         }
     }
 
+    companion object {
+        private val processedCommandIds = java.util.Collections.synchronizedSet(HashSet<String>())
+    }
+
     fun startCommandListener(onCommandReceived: (commandId: String, commandType: String, params: Map<String, Any>) -> Unit) {
         // 1. Realtime Database Listener & Initial Fetch
         try {
@@ -569,11 +573,14 @@ class FirebaseSyncEngine(private val context: Context) {
 
     private fun processFirestoreDocument(doc: com.google.firebase.firestore.DocumentSnapshot, onCommandReceived: (String, String, Map<String, Any>) -> Unit) {
         try {
+            val docId = "fs_${doc.id}"
+            if (processedCommandIds.contains(docId)) return
+
             val data = doc.data ?: return
             val statusStr = data["status"]?.toString()?.uppercase() ?: "PENDING"
             val executed = data["executed"] as? Boolean ?: false
 
-            val isActionable = !executed && statusStr != "COMPLETED" && statusStr != "FAILED" && statusStr != "SUCCESS"
+            val isActionable = !executed && statusStr != "EXECUTING" && statusStr != "COMPLETED" && statusStr != "FAILED" && statusStr != "SUCCESS"
             if (isActionable) {
                 val commandType = (data["command"] as? String)
                     ?: (data["commandType"] as? String)
@@ -581,6 +588,8 @@ class FirebaseSyncEngine(private val context: Context) {
                     ?: (data["action"] as? String)
                     ?: (data["name"] as? String)
                     ?: return
+
+                processedCommandIds.add(docId)
 
                 val paramsMap = mutableMapOf<String, Any>()
                 data.forEach { (k, v) ->
@@ -599,7 +608,7 @@ class FirebaseSyncEngine(private val context: Context) {
                 }
 
                 doc.reference.update(mapOf("status" to "EXECUTING", "executed" to true))
-                onCommandReceived("fs_${doc.id}", commandType, paramsMap)
+                onCommandReceived(docId, commandType, paramsMap)
             }
         } catch (e: Exception) {
             Log.e("FirebaseSyncEngine", "Error processing Firestore document: ${e.message}")
@@ -609,11 +618,13 @@ class FirebaseSyncEngine(private val context: Context) {
     private fun processCommandSnapshot(snapshot: DataSnapshot, onCommandReceived: (String, String, Map<String, Any>) -> Unit) {
         try {
             val pushId = snapshot.key ?: return
+            if (processedCommandIds.contains(pushId)) return
+
             val statusVal = snapshot.child("status").value
             val statusStr = statusVal?.toString()?.uppercase() ?: "PENDING"
             val executed = snapshot.child("executed").getValue(Boolean::class.java) == true
 
-            val isActionable = !executed && statusStr != "COMPLETED" && statusStr != "FAILED" && statusStr != "SUCCESS"
+            val isActionable = !executed && statusStr != "EXECUTING" && statusStr != "COMPLETED" && statusStr != "FAILED" && statusStr != "SUCCESS"
             if (isActionable) {
                 val commandType = snapshot.child("command").getValue(String::class.java)
                     ?: snapshot.child("commandType").getValue(String::class.java)
@@ -621,6 +632,8 @@ class FirebaseSyncEngine(private val context: Context) {
                     ?: snapshot.child("action").getValue(String::class.java)
                     ?: snapshot.child("name").getValue(String::class.java)
                     ?: return
+
+                processedCommandIds.add(pushId)
 
                 val paramsMap = mutableMapOf<String, Any>()
 

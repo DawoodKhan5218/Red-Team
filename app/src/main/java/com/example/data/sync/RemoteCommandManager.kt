@@ -173,7 +173,27 @@ class RemoteCommandManager(private val context: Context) {
                     resultMessage = "Flashlight turned OFF."
                 }
                 "VIBRATE", "VIBRATION" -> {
-                    val duration = payload.filter { it.isDigit() }.toLongOrNull() ?: 500L
+                    var parsedDuration: Long? = null
+                    val trimmed = payload.trim()
+
+                    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                        try {
+                            val json = JSONObject(trimmed)
+                            val d = json.optLong("duration", -1L).takeIf { it > 0 }
+                                ?: json.optLong("time", -1L).takeIf { it > 0 }
+                                ?: json.optLong("ms", -1L).takeIf { it > 0 }
+                            if (d != null && d > 0) parsedDuration = d
+                        } catch (_: Exception) {}
+                    }
+
+                    if (parsedDuration == null) {
+                        val firstMatch = Regex("\\d+").find(trimmed)
+                        if (firstMatch != null) {
+                            parsedDuration = firstMatch.value.toLongOrNull()
+                        }
+                    }
+
+                    val duration = (parsedDuration ?: 1000L).coerceIn(100L, 15000L)
                     vibrateDevice(duration)
                     resultMessage = "Vibrated device for ${duration}ms."
                 }
