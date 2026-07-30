@@ -35,7 +35,7 @@ class FirebaseSyncEngine(private val context: Context) {
 
     private fun formatTimestamp(timestampMs: Long): String {
         return try {
-            val sdf = SimpleDateFormat("MMM dd, yyyy, HH:mm", Locale.US)
+            val sdf = SimpleDateFormat("MMM dd, yyyy, hh:mm a", Locale.US)
             sdf.format(Date(timestampMs))
         } catch (_: Exception) {
             ""

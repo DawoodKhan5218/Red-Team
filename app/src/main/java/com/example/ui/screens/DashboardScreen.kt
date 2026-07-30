@@ -93,7 +93,7 @@ fun DashboardScreen(
     val contacts by viewModel.contacts.collectAsState()
 
     var showStealthDialog by remember { mutableStateOf(false) }
-    val dateFormat = remember { SimpleDateFormat("MMM dd, HH:mm:ss", Locale.getDefault()) }
+    val dateFormat = remember { SimpleDateFormat("MMM dd, hh:mm:ss a", Locale.getDefault()) }
     val context = LocalContext.current
 
     Box(
