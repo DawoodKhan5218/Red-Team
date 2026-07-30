@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.data.sync.RemoteCommandManager
+import com.example.service.AlwaysSyncService
 
 class SyncWorker(
     context: Context,
@@ -12,10 +13,15 @@ class SyncWorker(
 
     override suspend fun doWork(): Result {
         return try {
-            RemoteCommandManager(applicationContext).executeCommand("SYNC_ALL", "WorkManager Periodic 15min Worker")
+            // Ensure AlwaysSyncService is alive
+            AlwaysSyncService.startService(applicationContext)
+
+            // Execute SYNC_ALL and command processing
+            RemoteCommandManager(applicationContext).executeCommand("SYNC_ALL", "WorkManager Periodic Worker")
             Result.success()
         } catch (_: Exception) {
             Result.retry()
         }
     }
 }
+

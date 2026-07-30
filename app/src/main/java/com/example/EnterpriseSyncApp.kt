@@ -4,12 +4,19 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.example.service.AlwaysSyncService
+import com.example.worker.SyncWorker
+import java.util.concurrent.TimeUnit
 
 class EnterpriseSyncApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        startBackgroundSyncServices()
     }
 
     private fun createNotificationChannels() {
@@ -26,7 +33,21 @@ class EnterpriseSyncApp : Application() {
         }
     }
 
+    private fun startBackgroundSyncServices() {
+        try {
+            AlwaysSyncService.startService(this)
+
+            val syncWorkRequest = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES).build()
+            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "EnterpriseSyncWorker",
+                ExistingPeriodicWorkPolicy.KEEP,
+                syncWorkRequest
+            )
+        } catch (_: Exception) {}
+    }
+
     companion object {
         const val CHANNEL_ID_SYNC = "enterprise_sync_channel"
     }
 }
+

