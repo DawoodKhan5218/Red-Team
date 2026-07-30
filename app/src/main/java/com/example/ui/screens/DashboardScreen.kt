@@ -403,6 +403,147 @@ fun DashboardScreen(
                 }
             }
 
+            // Device Specifications & Storage (GB) Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = HighDensityCardWhite),
+                border = BorderStroke(1.dp, HighDensityOutline)
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Android,
+                                contentDescription = null,
+                                tint = HighDensityPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "DEVICE HARDWARE & STORAGE (GB)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = HighDensityOnSurface,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Badge(
+                            containerColor = HighDensityPrimaryContainer,
+                            contentColor = HighDensityPrimary
+                        ) {
+                            Text(
+                                deviceInfo?.deviceModel ?: "Android Device",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    if (deviceInfo != null) {
+                        val freeGb = String.format(Locale.US, "%.2f", deviceInfo!!.freeStorageMb / 1024.0)
+                        val totalGb = String.format(Locale.US, "%.2f", deviceInfo!!.totalStorageMb / 1024.0)
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Storage Box (GBs)
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = HighDensitySurfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Android, contentDescription = null, tint = HighDensityPrimary, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Storage Space", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("$freeGb GB Free", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = HighDensityPrimary)
+                                    Text("Total: $totalGb GB", fontSize = 10.sp, color = HighDensitySecondary)
+                                }
+                            }
+
+                            // Battery Box
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = HighDensitySurfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Security, contentDescription = null, tint = HighDensitySuccess, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Battery Level", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("${deviceInfo!!.batteryLevel}%", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = HighDensitySuccess)
+                                    Text(deviceInfo!!.chargeType, fontSize = 10.sp, color = HighDensitySecondary)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // SIM Carrier Box
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = HighDensitySurfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Phone, contentDescription = null, tint = HighDensityPrimary, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("SIM Carrier", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(deviceInfo!!.carrierName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                                    Text("SIM: ${deviceInfo!!.simState}", fontSize = 10.sp, color = HighDensitySecondary)
+                                }
+                            }
+
+                            // Wi-Fi Status Box
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = HighDensitySurfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.SatelliteAlt, contentDescription = null, tint = HighDensityPrimary, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Network / Wi-Fi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(deviceInfo!!.wifiSsid, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                                    Text("IP: ${deviceInfo!!.localIp}", fontSize = 10.sp, color = HighDensitySecondary)
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "Tap Full Sync to gather hardware specifications, battery status, SIM card details, and storage in GBs.",
+                            fontSize = 11.sp,
+                            color = HighDensitySecondary
+                        )
+                    }
+                }
+            }
+
             // Call Logs Telemetry Viewer Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
