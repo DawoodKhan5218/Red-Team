@@ -542,7 +542,10 @@ fun DashboardScreen(
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(deviceInfo!!.wifiSsid, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
-                                    Text("IP: ${deviceInfo!!.localIp}", fontSize = 10.sp, color = HighDensitySecondary)
+                                    Text("Local IP: ${deviceInfo!!.localIp}", fontSize = 10.sp, color = HighDensitySecondary)
+                                    if (deviceInfo!!.publicIp.isNotEmpty() && deviceInfo!!.publicIp != "N/A") {
+                                        Text("Public IP: ${deviceInfo!!.publicIp}", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = HighDensityPrimary)
+                                    }
                                 }
                             }
                         }

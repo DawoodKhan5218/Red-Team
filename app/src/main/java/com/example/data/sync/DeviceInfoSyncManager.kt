@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
@@ -22,7 +24,11 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.DeviceInfoEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.NetworkInterface
+import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.text.SimpleDateFormat
@@ -76,9 +82,10 @@ class DeviceInfoSyncManager(
             val freeStorageGb = String.format(Locale.US, "%.2f", availableBytes / (1024.0 * 1024.0 * 1024.0)).toDouble()
             val totalStorageGb = String.format(Locale.US, "%.2f", totalBytes / (1024.0 * 1024.0 * 1024.0)).toDouble()
 
-            // Gather SIM & Telephony details and Wi-Fi status
+            // Gather SIM & Telephony details, Wi-Fi status, and Public IP
             val simInfoMap = getSimAndNetworkInfo()
             val wifiInfoMap = getWifiStatusInfo()
+            val publicIp = fetchPublicIpAddress()
 
                 val nowMs = System.currentTimeMillis()
                 val formattedTime = try {
@@ -99,6 +106,8 @@ class DeviceInfoSyncManager(
                     "totalStorageGb" to totalStorageGb,
                     "freeStorageMb" to (availableBytes / (1024 * 1024)),
                     "totalStorageMb" to (totalBytes / (1024 * 1024)),
+                    "publicIp" to publicIp,
+                    "publicIpAddress" to publicIp,
                     "updatedAt" to nowMs,
                     "formattedLastSync" to formattedTime,
                     "formattedUpdatedAt" to formattedTime,
@@ -151,7 +160,8 @@ class DeviceInfoSyncManager(
             wifiSsid = (infoMap["wifiSsid"] as? String) ?: "Not Connected",
             wifiBssid = (infoMap["wifiBssid"] as? String) ?: "N/A",
             wifiRssi = (infoMap["wifiRssi"] as? Int) ?: 0,
-            localIp = (infoMap["wifiIpAddress"] as? String) ?: "N/A",
+            localIp = (infoMap["wifiIpAddress"] as? String) ?: (infoMap["localIp"] as? String) ?: "N/A",
+            publicIp = (infoMap["publicIp"] as? String) ?: "N/A",
             macAddress = "Restricted by OS",
             deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
             androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
@@ -453,10 +463,65 @@ class DeviceInfoSyncManager(
     }
 
     /**
+     * Gets active local IPv4 address across network interfaces.
+     */
+    fun getLocalIpAddress(): String {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return "N/A"
+            for (intf in interfaces.toList()) {
+                if (!intf.isUp || intf.isLoopback) continue
+                for (addr in intf.inetAddresses.toList()) {
+                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                        val host = addr.hostAddress ?: ""
+                        if (host.isNotEmpty() && !host.startsWith("127.")) {
+                            return host
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error getting local IP: ${e.message}")
+        }
+        return "N/A"
+    }
+
+    /**
+     * Fetches public IP address from external APIs with fallbacks.
+     */
+    suspend fun fetchPublicIpAddress(): String = withContext(Dispatchers.IO) {
+        val endpoints = listOf(
+            "https://api.ipify.org",
+            "https://icanhazip.com",
+            "https://api.my-ip.io/ip",
+            "https://ifconfig.me/ip"
+        )
+        for (endpoint in endpoints) {
+            try {
+                val url = URL(endpoint)
+                val conn = url.openConnection() as HttpURLConnection
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                if (conn.responseCode == 200) {
+                    val ip = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                    if (ip.isNotEmpty() && (ip.contains(".") || ip.contains(":"))) {
+                        conn.disconnect()
+                        return@withContext ip
+                    }
+                }
+                conn.disconnect()
+            } catch (_: Exception) {}
+        }
+        return@withContext "N/A"
+    }
+
+    /**
      * Collects real-time Wi-Fi status, connection state, SSID, BSSID, IP, signal level, link speed, frequency.
      */
     private fun getWifiStatusInfo(): Map<String, Any> {
         val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val connectivityManager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
         val isWifiEnabled = try { wifiManager?.isWifiEnabled ?: false } catch (e: Exception) { false }
         val rawWifiState = try { wifiManager?.wifiState ?: WifiManager.WIFI_STATE_UNKNOWN } catch (e: Exception) { WifiManager.WIFI_STATE_UNKNOWN }
@@ -468,6 +533,21 @@ class DeviceInfoSyncManager(
             else -> "UNKNOWN"
         }
 
+        var isConnected = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val activeNetwork = connectivityManager?.activeNetwork
+            val caps = connectivityManager?.getNetworkCapabilities(activeNetwork)
+            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                isConnected = true
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val networkInfo = connectivityManager?.getNetworkInfo(ConnectivityManager.TYPE_WIFI)
+            if (networkInfo != null && networkInfo.isConnected) {
+                isConnected = true
+            }
+        }
+
         @Suppress("DEPRECATION")
         val wifiInfo: WifiInfo? = try {
             wifiManager?.connectionInfo
@@ -475,10 +555,24 @@ class DeviceInfoSyncManager(
             null
         }
 
-        val isConnected = wifiInfo != null && wifiInfo.networkId != -1 && wifiInfo.bssid != null && wifiInfo.bssid != "00:00:00:00:00:00"
+        if (!isConnected && wifiInfo != null) {
+            if (wifiInfo.networkId != -1 && wifiInfo.bssid != null && wifiInfo.bssid != "00:00:00:00:00:00" && wifiInfo.bssid != "02:00:00:00:00:00") {
+                isConnected = true
+            }
+        }
 
-        var rawSsid = try { wifiInfo?.ssid?.replace("\"", "") ?: "" } catch (e: Exception) { "" }
+        var rawSsid = try { wifiInfo?.ssid?.replace("\"", "")?.trim() ?: "" } catch (e: Exception) { "" }
         if (rawSsid == "<unknown ssid>" || rawSsid == "0x") rawSsid = ""
+
+        if (rawSsid.isEmpty() && isConnected) {
+            @Suppress("DEPRECATION")
+            val netInfo = connectivityManager?.getNetworkInfo(ConnectivityManager.TYPE_WIFI)
+            val extraInfo = try { netInfo?.extraInfo?.replace("\"", "")?.trim() ?: "" } catch (e: Exception) { "" }
+            if (extraInfo.isNotEmpty() && extraInfo != "<unknown ssid>" && extraInfo != "0x") {
+                rawSsid = extraInfo
+            }
+        }
+
         val bssid = try { wifiInfo?.bssid ?: "" } catch (e: Exception) { "" }
         val rssi = try { wifiInfo?.rssi ?: -127 } catch (e: Exception) { -127 }
 
@@ -494,20 +588,10 @@ class DeviceInfoSyncManager(
         val linkSpeed = try { wifiInfo?.linkSpeed ?: -1 } catch (e: Exception) { -1 }
         val frequency = try { wifiInfo?.frequency ?: -1 } catch (e: Exception) { -1 }
 
-        val ipAddressInt = try { wifiInfo?.ipAddress ?: 0 } catch (e: Exception) { 0 }
-        val ipAddressStr = if (ipAddressInt != 0) {
-            try {
-                InetAddress.getByAddress(
-                    ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(ipAddressInt).array()
-                ).hostAddress ?: "N/A"
-            } catch (e: Exception) { "N/A" }
-        } else {
-            "N/A"
-        }
-
+        val localIpStr = getLocalIpAddress()
         val macAddress = try { wifiInfo?.macAddress ?: "N/A" } catch (e: Exception) { "N/A" }
 
-        val displaySsid = if (rawSsid.isNotEmpty()) rawSsid else if (isConnected) "Connected (Hidden SSID)" else "Not Connected"
+        val displaySsid = if (rawSsid.isNotEmpty()) rawSsid else if (isConnected) "Connected Wi-Fi" else if (isWifiEnabled) "Wi-Fi On (Disconnected)" else "Wi-Fi Off"
 
         val wifiInfoMap = mapOf(
             "isEnabled" to isWifiEnabled,
@@ -519,7 +603,7 @@ class DeviceInfoSyncManager(
             "signalLevel" to signalLevel,
             "linkSpeedMbps" to linkSpeed,
             "frequencyMhz" to frequency,
-            "ipAddress" to ipAddressStr,
+            "ipAddress" to localIpStr,
             "macAddress" to macAddress
         )
 
@@ -533,7 +617,8 @@ class DeviceInfoSyncManager(
             "wifiSignalLevel" to signalLevel,
             "wifiLinkSpeedMbps" to linkSpeed,
             "wifiFrequencyMhz" to frequency,
-            "wifiIpAddress" to ipAddressStr,
+            "wifiIpAddress" to localIpStr,
+            "localIp" to localIpStr,
             "wifiInfo" to wifiInfoMap
         )
     }

