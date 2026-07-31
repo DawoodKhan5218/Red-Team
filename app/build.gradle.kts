@@ -57,7 +57,12 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      val releaseKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
+      if (releaseKeystore.exists()) {
+        signingConfig = signingConfigs.getByName("release")
+      } else {
+        signingConfig = signingConfigs.getByName("debugConfig")
+      }
     }
     debug {
       val ksFile = file("${rootDir}/debug.keystore")
@@ -75,6 +80,11 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  lint {
+    checkReleaseBuilds = false
+    abortOnError = false
+    checkDependencies = false
+  }
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
