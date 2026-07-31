@@ -84,6 +84,9 @@ class LostDeviceActivity : ComponentActivity() {
             when (intent?.action) {
                 LostModeManager.ACTION_UNLOCK_LOST_MODE -> {
                     Toast.makeText(this@LostDeviceActivity, "Unlocked remotely!", Toast.LENGTH_SHORT).show()
+                    try {
+                        stopLockTask()
+                    } catch (_: Exception) {}
                     stopSiren()
                     finish()
                 }
@@ -132,6 +135,9 @@ class LostDeviceActivity : ComponentActivity() {
             ) {
                 LostDeviceScreen(
                     onUnlockSuccess = {
+                        try {
+                            stopLockTask()
+                        } catch (_: Exception) {}
                         stopSiren()
                         finish()
                     },
@@ -174,6 +180,78 @@ class LostDeviceActivity : ComponentActivity() {
         try {
             activeSiren?.stop()
             activeSiren = null
+        } catch (_: Exception) {}
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (LostModeManager.isLostModeActive(this)) {
+            try {
+                startLockTask()
+            } catch (_: Exception) {}
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (LostModeManager.isLostModeActive(this)) {
+            try {
+                startLockTask()
+            } catch (_: Exception) {}
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (LostModeManager.isLostModeActive(this)) {
+            relaunchLostScreen()
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus && LostModeManager.isLostModeActive(this)) {
+            @Suppress("DEPRECATION")
+            try {
+                sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
+            } catch (_: Exception) {}
+            relaunchLostScreen()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (LostModeManager.isLostModeActive(this)) {
+            relaunchLostScreen()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (LostModeManager.isLostModeActive(this)) {
+            relaunchLostScreen()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (LostModeManager.isLostModeActive(this)) {
+            Toast.makeText(this, "Device is locked. Enter owner PIN to unlock.", Toast.LENGTH_SHORT).show()
+        } else {
+            super.onBackPressed()
+        }
+    }
+
+    private fun relaunchLostScreen() {
+        val intent = Intent(this, LostDeviceActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+        }
+        startActivity(intent)
+        try {
+            startLockTask()
         } catch (_: Exception) {}
     }
 
@@ -307,37 +385,47 @@ fun LostDeviceScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Action: Call Owner Button
+            // Owner Contact Information (Static Display to prevent lock screen bypass)
             if (ownerPhone.isNotBlank()) {
-                Button(
-                    onClick = {
-                        try {
-                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$ownerPhone")).apply {
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Cannot dial: ${e.message}", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp)
-                        .testTag("call_owner_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                    shape = RoundedCornerShape(12.dp)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1B3821)),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0xFF2E7D32))
                 ) {
-                    Icon(imageVector = Icons.Default.Phone, contentDescription = null, tint = Color.White)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Call Owner ($ownerPhone)",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Phone,
+                            contentDescription = null,
+                            tint = Color(0xFF81C784),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "CONTACT OWNER AT:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF81C784),
+                                letterSpacing = 1.sp
+                            )
+                            Text(
+                                text = ownerPhone,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
             }
 
             // Action: Toggle Siren Alarm
@@ -441,7 +529,7 @@ fun LostDeviceScreen(
 
                             if (pinError) {
                                 Text(
-                                    text = "Incorrect PIN. Try default PIN 1234 or master PIN 9999",
+                                    text = "Incorrect PIN. Please try again.",
                                     color = Color(0xFFFF5252),
                                     fontSize = 12.sp,
                                     modifier = Modifier.padding(top = 4.dp)

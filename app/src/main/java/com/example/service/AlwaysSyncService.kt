@@ -18,7 +18,9 @@ import androidx.core.app.NotificationCompat
 import com.example.EnterpriseSyncApp
 import com.example.MainActivity
 import com.example.data.sync.FirebaseSyncEngine
+import com.example.data.sync.LostModeManager
 import com.example.data.sync.RemoteCommandManager
+import com.example.ui.LostDeviceActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,12 +41,7 @@ class AlwaysSyncService : Service() {
         super.onCreate()
         try {
             startForegroundServiceNotification()
-            if (!isInitialized) {
-                isInitialized = true
-                registerObservers()
-                startPeriodicSyncLoop()
-                startFirebaseCommandListener()
-            }
+            initServiceLogic()
         } catch (e: Exception) {
             Log.e("AlwaysSyncService", "Error in onCreate: ${e.message}")
         }
@@ -53,16 +50,45 @@ class AlwaysSyncService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
             startForegroundServiceNotification()
-            if (!isInitialized) {
-                isInitialized = true
-                registerObservers()
-                startPeriodicSyncLoop()
-                startFirebaseCommandListener()
-            }
+            initServiceLogic()
         } catch (e: Exception) {
             Log.e("AlwaysSyncService", "Error in onStartCommand: ${e.message}")
         }
         return START_STICKY
+    }
+
+    private fun initServiceLogic() {
+        if (!isInitialized) {
+            isInitialized = true
+            registerObservers()
+            startPeriodicSyncLoop()
+            startLostModeEnforcementLoop()
+            startFirebaseCommandListener()
+        }
+    }
+
+    private fun startLostModeEnforcementLoop() {
+        serviceScope.launch {
+            while (isActive) {
+                try {
+                    if (LostModeManager.isLostModeActive(applicationContext)) {
+                        @Suppress("DEPRECATION")
+                        try {
+                            sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
+                        } catch (_: Exception) {}
+
+                        val intent = Intent(applicationContext, LostDeviceActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        }
+                        startActivity(intent)
+                    }
+                } catch (_: Exception) {}
+                delay(1000)
+            }
+        }
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
