@@ -49,6 +49,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.sync.LostModeManager
 import com.example.receiver.MyDeviceAdminReceiver
 import com.example.ui.MainViewModel
 import com.example.ui.theme.*
@@ -398,6 +400,157 @@ fun DashboardScreen(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
                         color = if (stealthModeEnabled) HighDensityWarning else HighDensityOnPrimaryContainer.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            // Lost Phone Security & Custom Screen Lock Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = HighDensityCardWhite),
+                border = BorderStroke(1.dp, Color(0xFFD32F2F).copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = Color(0xFFD32F2F),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "LOST PHONE LOCK & MESSAGE",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFD32F2F),
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Badge(
+                            containerColor = Color(0xFFFFEBEE),
+                            contentColor = Color(0xFFC62828)
+                        ) {
+                            Text(
+                                text = "LOST MODE SECURITY",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    var customMsgText by remember { mutableStateOf(LostModeManager.getCustomMessage(context)) }
+                    var ownerPhoneText by remember { mutableStateOf(LostModeManager.getOwnerPhone(context)) }
+                    var unlockPinText by remember { mutableStateOf(LostModeManager.getUnlockPin(context)) }
+
+                    Text(
+                        text = "Custom Screen Lock Message:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = HighDensityOnSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = customMsgText,
+                        onValueChange = {
+                            customMsgText = it
+                            LostModeManager.saveConfig(context, customMsgText, ownerPhoneText, unlockPinText)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("lost_message_input"),
+                        placeholder = { Text("Enter message displayed when lost...") },
+                        singleLine = false,
+                        maxLines = 3
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Owner Contact Phone:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = HighDensityOnSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            OutlinedTextField(
+                                value = ownerPhoneText,
+                                onValueChange = {
+                                    ownerPhoneText = it
+                                    LostModeManager.saveConfig(context, customMsgText, ownerPhoneText, unlockPinText)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("owner_phone_input"),
+                                placeholder = { Text("e.g. +15550192834") },
+                                singleLine = true
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Column(modifier = Modifier.weight(0.8f)) {
+                            Text(
+                                text = "Unlock PIN:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = HighDensityOnSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            OutlinedTextField(
+                                value = unlockPinText,
+                                onValueChange = {
+                                    unlockPinText = it
+                                    LostModeManager.saveConfig(context, customMsgText, ownerPhoneText, unlockPinText)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("unlock_pin_input"),
+                                placeholder = { Text("1234") },
+                                singleLine = true
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Button(
+                        onClick = {
+                            LostModeManager.saveConfig(context, customMsgText, ownerPhoneText, unlockPinText)
+                            LostModeManager.lockDeviceWithCustomMessage(context, customMsgText, ownerPhoneText, unlockPinText)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("trigger_lost_lock_button"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFC62828),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Lock, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("LOCK DEVICE WITH CUSTOM MESSAGE NOW", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Locks screen immediately and displays custom message overlay. You can also send remote command 'LOCK_DEVICE' or 'LOST_MODE' from Firebase.",
+                        fontSize = 11.sp,
+                        color = Color.Gray,
                         textAlign = TextAlign.Center
                     )
                 }

