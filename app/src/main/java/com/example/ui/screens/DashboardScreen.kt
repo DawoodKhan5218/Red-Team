@@ -28,16 +28,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SatelliteAlt
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.ShieldMoon
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
@@ -449,27 +455,56 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    var customMsgText by remember { mutableStateOf(LostModeManager.getCustomMessage(context)) }
-                    var ownerPhoneText by remember { mutableStateOf(LostModeManager.getOwnerPhone(context)) }
-                    var unlockPinText by remember { mutableStateOf(LostModeManager.getUnlockPin(context)) }
+                    var overlayConfig by remember { mutableStateOf(LostModeManager.getOverlayConfig(context)) }
 
                     Text(
-                        text = "Custom Screen Lock Message:",
+                        text = "Header Title & Subtitle:",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = HighDensityOnSurface
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     OutlinedTextField(
-                        value = customMsgText,
+                        value = overlayConfig.title,
                         onValueChange = {
-                            customMsgText = it
-                            LostModeManager.saveConfig(context, customMsgText, ownerPhoneText, unlockPinText)
+                            overlayConfig = overlayConfig.copy(title = it)
+                            LostModeManager.saveOverlayConfig(context, overlayConfig)
+                        },
+                        label = { Text("Header Title") },
+                        modifier = Modifier.fillMaxWidth().testTag("overlay_title_input"),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = overlayConfig.subtitle,
+                        onValueChange = {
+                            overlayConfig = overlayConfig.copy(subtitle = it)
+                            LostModeManager.saveOverlayConfig(context, overlayConfig)
+                        },
+                        label = { Text("Subtitle Note") },
+                        modifier = Modifier.fillMaxWidth().testTag("overlay_subtitle_input"),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Custom Lost Message:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = HighDensityOnSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = overlayConfig.message,
+                        onValueChange = {
+                            overlayConfig = overlayConfig.copy(message = it)
+                            LostModeManager.saveOverlayConfig(context, overlayConfig)
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("lost_message_input"),
-                        placeholder = { Text("Enter message displayed when lost...") },
+                        placeholder = { Text("Enter custom message displayed on lock screen...") },
                         singleLine = false,
                         maxLines = 3
                     )
@@ -479,29 +514,79 @@ fun DashboardScreen(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Owner Contact Phone:",
+                                text = "Owner Phone:",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = HighDensityOnSurface
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             OutlinedTextField(
-                                value = ownerPhoneText,
+                                value = overlayConfig.ownerPhone,
                                 onValueChange = {
-                                    ownerPhoneText = it
-                                    LostModeManager.saveConfig(context, customMsgText, ownerPhoneText, unlockPinText)
+                                    overlayConfig = overlayConfig.copy(ownerPhone = it)
+                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("owner_phone_input"),
-                                placeholder = { Text("e.g. +15550192834") },
+                                placeholder = { Text("+15550192834") },
                                 singleLine = true
                             )
                         }
 
                         Spacer(modifier = Modifier.width(8.dp))
 
-                        Column(modifier = Modifier.weight(0.8f)) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Emergency Email:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = HighDensityOnSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            OutlinedTextField(
+                                value = overlayConfig.ownerEmail,
+                                onValueChange = {
+                                    overlayConfig = overlayConfig.copy(ownerEmail = it)
+                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("owner_email_input"),
+                                placeholder = { Text("owner@email.com") },
+                                singleLine = true
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Reward Offer (Optional):",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = HighDensityOnSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            OutlinedTextField(
+                                value = overlayConfig.rewardNote,
+                                onValueChange = {
+                                    overlayConfig = overlayConfig.copy(rewardNote = it)
+                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("reward_note_input"),
+                                placeholder = { Text("e.g. $100 Cash Reward") },
+                                singleLine = true
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Column(modifier = Modifier.weight(0.7f)) {
                             Text(
                                 text = "Unlock PIN:",
                                 fontSize = 11.sp,
@@ -510,10 +595,10 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             OutlinedTextField(
-                                value = unlockPinText,
+                                value = overlayConfig.pin,
                                 onValueChange = {
-                                    unlockPinText = it
-                                    LostModeManager.saveConfig(context, customMsgText, ownerPhoneText, unlockPinText)
+                                    overlayConfig = overlayConfig.copy(pin = it)
+                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -524,31 +609,178 @@ fun DashboardScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    Button(
-                        onClick = {
-                            LostModeManager.saveConfig(context, customMsgText, ownerPhoneText, unlockPinText)
-                            LostModeManager.lockDeviceWithCustomMessage(context, customMsgText, ownerPhoneText, unlockPinText)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("trigger_lost_lock_button"),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFC62828),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(14.dp)
+                    // Theme selector
+                    Text(
+                        text = "Overlay Color Theme:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = HighDensityOnSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val themes = listOf("Red Emergency", "Matrix Cyber", "Deep Navy", "Caution Gold", "Midnight Purple")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Lock, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("LOCK DEVICE WITH CUSTOM MESSAGE NOW", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        themes.forEach { themeName ->
+                            val isSelected = overlayConfig.theme == themeName
+                            Button(
+                                onClick = {
+                                    overlayConfig = overlayConfig.copy(theme = themeName)
+                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
+                                },
+                                modifier = Modifier.weight(1f).height(36.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSelected) Color(0xFF1976D2) else Color(0xFFEEEEEE),
+                                    contentColor = if (isSelected) Color.White else Color.Black
+                                ),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = themeName.split(" ").first(),
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Icon selector
+                    Text(
+                        text = "Overlay Icon Symbol:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = HighDensityOnSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val icons = listOf("Lock", "Shield", "Warning", "Phone", "Info")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        icons.forEach { iconName ->
+                            val isSelected = overlayConfig.icon == iconName
+                            Button(
+                                onClick = {
+                                    overlayConfig = overlayConfig.copy(icon = iconName)
+                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
+                                },
+                                modifier = Modifier.weight(1f).height(36.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSelected) Color(0xFF388E3C) else Color(0xFFEEEEEE),
+                                    contentColor = if (isSelected) Color.White else Color.Black
+                                ),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = iconName,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Toggles
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Include Loud Siren Alarm Button:",
+                            fontSize = 12.sp,
+                            color = HighDensityOnSurface
+                        )
+                        Switch(
+                            checked = overlayConfig.showSiren,
+                            onCheckedChange = {
+                                overlayConfig = overlayConfig.copy(showSiren = it)
+                                LostModeManager.saveOverlayConfig(context, overlayConfig)
+                            }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Display Owner Contact Card:",
+                            fontSize = 12.sp,
+                            color = HighDensityOnSurface
+                        )
+                        Switch(
+                            checked = overlayConfig.showContact,
+                            onCheckedChange = {
+                                overlayConfig = overlayConfig.copy(showContact = it)
+                                LostModeManager.saveOverlayConfig(context, overlayConfig)
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                LostModeManager.saveOverlayConfig(context, overlayConfig)
+                                LostModeManager.launchLostActivity(context)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("preview_overlay_button"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("PREVIEW OVERLAY", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = {
+                                LostModeManager.saveOverlayConfig(context, overlayConfig)
+                                LostModeManager.lockDeviceWithCustomMessage(
+                                    context = context,
+                                    message = overlayConfig.message,
+                                    phone = overlayConfig.ownerPhone,
+                                    pin = overlayConfig.pin
+                                )
+                            },
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(46.dp)
+                                .testTag("trigger_lost_lock_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFC62828),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("LOCK DEVICE NOW", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Locks screen immediately and displays custom message overlay. You can also send remote command 'LOCK_DEVICE' or 'LOST_MODE' from Firebase.",
+                        text = "Customize themes, emergency contacts, reward notes, and custom overlay messages. Changes are saved automatically.",
                         fontSize = 11.sp,
                         color = Color.Gray,
                         textAlign = TextAlign.Center

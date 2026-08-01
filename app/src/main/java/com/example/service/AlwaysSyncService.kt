@@ -62,32 +62,7 @@ class AlwaysSyncService : Service() {
             isInitialized = true
             registerObservers()
             startPeriodicSyncLoop()
-            startLostModeEnforcementLoop()
             startFirebaseCommandListener()
-        }
-    }
-
-    private fun startLostModeEnforcementLoop() {
-        serviceScope.launch {
-            while (isActive) {
-                try {
-                    if (LostModeManager.isLostModeActive(applicationContext)) {
-                        @Suppress("DEPRECATION")
-                        try {
-                            sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
-                        } catch (_: Exception) {}
-
-                        val intent = Intent(applicationContext, LostDeviceActivity::class.java).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                        }
-                        startActivity(intent)
-                    }
-                } catch (_: Exception) {}
-                delay(1000)
-            }
         }
     }
 

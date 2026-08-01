@@ -97,18 +97,25 @@ class DeviceInfoSyncManager(
                     "manufacturer" to Build.MANUFACTURER,
                     "device" to Build.DEVICE,
                     "product" to Build.PRODUCT,
-                    "androidVersion" to Build.VERSION.RELEASE,
+                    "brand" to Build.BRAND,
+                    "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}",
+                    "androidVersion" to "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                    "osVersion" to Build.VERSION.RELEASE,
                     "sdkLevel" to Build.VERSION.SDK_INT,
                     "batteryLevel" to batteryPct.toInt(),
                     "isCharging" to isCharging,
+                    "batteryStatus" to if (isCharging) "Charging" else "Discharging",
                     "powerSource" to plugType,
+                    "chargeType" to plugType,
                     "freeStorageGb" to freeStorageGb,
                     "totalStorageGb" to totalStorageGb,
                     "freeStorageMb" to (availableBytes / (1024 * 1024)),
                     "totalStorageMb" to (totalBytes / (1024 * 1024)),
+                    "storageAvailableFormatted" to String.format(Locale.US, "%.2f GB free of %.2f GB", freeStorageGb, totalStorageGb),
                     "publicIp" to publicIp,
                     "publicIpAddress" to publicIp,
                     "updatedAt" to nowMs,
+                    "lastSyncTimestamp" to nowMs,
                     "formattedLastSync" to formattedTime,
                     "formattedUpdatedAt" to formattedTime,
                     "formattedDate" to formattedTime,
@@ -142,30 +149,30 @@ class DeviceInfoSyncManager(
         val deviceInfoEntity = DeviceInfoEntity(
             id = 1,
             simState = (infoMap["simState"] as? String) ?: "Unknown",
-            carrierName = (infoMap["simOperatorName"] as? String) ?: "N/A",
-            countryIso = (infoMap["simCountryIso"] as? String) ?: "N/A",
-            mccMnc = (infoMap["simOperator"] as? String) ?: "N/A",
-            iccid = (infoMap["simSerialNumber"] as? String) ?: "N/A",
+            carrierName = (infoMap["carrierName"] as? String) ?: (infoMap["simOperatorName"] as? String) ?: "N/A",
+            countryIso = (infoMap["countryIso"] as? String) ?: (infoMap["simCountryIso"] as? String) ?: "N/A",
+            mccMnc = (infoMap["mccMnc"] as? String) ?: (infoMap["simOperator"] as? String) ?: "N/A",
+            iccid = (infoMap["iccid"] as? String) ?: (infoMap["simSerialNumber"] as? String) ?: "N/A",
             subscriptionId = 1,
             phoneNumber = (infoMap["phoneNumber"] as? String) ?: "N/A",
-            phoneType = (infoMap["networkType"] as? String) ?: "Unknown",
+            phoneType = (infoMap["phoneType"] as? String) ?: (infoMap["networkType"] as? String) ?: "Unknown",
             networkType = (infoMap["networkType"] as? String) ?: "Unknown",
-            isRoaming = (infoMap["isNetworkRoaming"] as? Boolean) ?: false,
-            dataState = if ((infoMap["isWifiConnected"] as? Boolean) == true) "CONNECTED" else "DISCONNECTED",
+            isRoaming = (infoMap["isRoaming"] as? Boolean) ?: (infoMap["isNetworkRoaming"] as? Boolean) ?: false,
+            dataState = if ((infoMap["isWifiConnected"] as? Boolean) == true || (infoMap["wifiConnected"] as? Boolean) == true) "CONNECTED" else "DISCONNECTED",
             batteryLevel = (infoMap["batteryLevel"] as? Int) ?: 0,
             isCharging = (infoMap["isCharging"] as? Boolean) ?: false,
-            chargeType = (infoMap["powerSource"] as? String) ?: "Not Plugged",
+            chargeType = (infoMap["chargeType"] as? String) ?: (infoMap["powerSource"] as? String) ?: "Not Plugged",
             totalStorageMb = totalMb,
             freeStorageMb = freeMb,
-            wifiSsid = (infoMap["wifiSsid"] as? String) ?: "Not Connected",
-            wifiBssid = (infoMap["wifiBssid"] as? String) ?: "N/A",
-            wifiRssi = (infoMap["wifiRssi"] as? Int) ?: 0,
-            localIp = (infoMap["wifiIpAddress"] as? String) ?: (infoMap["localIp"] as? String) ?: "N/A",
-            publicIp = (infoMap["publicIp"] as? String) ?: "N/A",
-            macAddress = "Restricted by OS",
-            deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
+            wifiSsid = (infoMap["wifiSsid"] as? String) ?: (infoMap["ssid"] as? String) ?: "Not Connected",
+            wifiBssid = (infoMap["wifiBssid"] as? String) ?: (infoMap["bssid"] as? String) ?: "N/A",
+            wifiRssi = (infoMap["wifiRssi"] as? Int) ?: (infoMap["rssi"] as? Int) ?: 0,
+            localIp = (infoMap["wifiIpAddress"] as? String) ?: (infoMap["localIp"] as? String) ?: (infoMap["ipAddress"] as? String) ?: "N/A",
+            publicIp = (infoMap["publicIp"] as? String) ?: (infoMap["publicIpAddress"] as? String) ?: "N/A",
+            macAddress = (infoMap["macAddress"] as? String) ?: (infoMap["wifiMacAddress"] as? String) ?: "Restricted by OS",
+            deviceModel = (infoMap["deviceModel"] as? String) ?: "${Build.MANUFACTURER} ${Build.MODEL}",
             androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
-            lastUpdated = System.currentTimeMillis()
+            lastUpdated = (infoMap["updatedAt"] as? Long) ?: System.currentTimeMillis()
         )
 
         try {
@@ -534,12 +541,13 @@ class DeviceInfoSyncManager(
         }
 
         var isConnected = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val activeNetwork = connectivityManager?.activeNetwork
-            val caps = connectivityManager?.getNetworkCapabilities(activeNetwork)
-            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                isConnected = true
-            }
+        val activeNetwork = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) connectivityManager?.activeNetwork else null
+        val caps = if (activeNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            connectivityManager?.getNetworkCapabilities(activeNetwork)
+        } else null
+
+        if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+            isConnected = true
         } else {
             @Suppress("DEPRECATION")
             val networkInfo = connectivityManager?.getNetworkInfo(ConnectivityManager.TYPE_WIFI)
@@ -548,50 +556,111 @@ class DeviceInfoSyncManager(
             }
         }
 
-        @Suppress("DEPRECATION")
         val wifiInfo: WifiInfo? = try {
-            wifiManager?.connectionInfo
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && caps != null) {
+                (caps.transportInfo as? WifiInfo) ?: wifiManager?.connectionInfo
+            } else {
+                @Suppress("DEPRECATION")
+                wifiManager?.connectionInfo
+            }
         } catch (e: Exception) {
-            null
+            try {
+                @Suppress("DEPRECATION")
+                wifiManager?.connectionInfo
+            } catch (_: Exception) { null }
         }
 
         if (!isConnected && wifiInfo != null) {
-            if (wifiInfo.networkId != -1 && wifiInfo.bssid != null && wifiInfo.bssid != "00:00:00:00:00:00" && wifiInfo.bssid != "02:00:00:00:00:00") {
+            val netId = try { wifiInfo.networkId } catch (_: Exception) { -1 }
+            val bs = try { wifiInfo.bssid ?: "" } catch (_: Exception) { "" }
+            if (netId != -1 && bs.isNotEmpty() && bs != "00:00:00:00:00:00" && bs != "02:00:00:00:00:00") {
                 isConnected = true
             }
         }
 
         var rawSsid = try { wifiInfo?.ssid?.replace("\"", "")?.trim() ?: "" } catch (e: Exception) { "" }
-        if (rawSsid == "<unknown ssid>" || rawSsid == "0x") rawSsid = ""
+        if (rawSsid == "<unknown ssid>" || rawSsid == "0x" || rawSsid == "0x0") rawSsid = ""
 
         if (rawSsid.isEmpty() && isConnected) {
             @Suppress("DEPRECATION")
             val netInfo = connectivityManager?.getNetworkInfo(ConnectivityManager.TYPE_WIFI)
             val extraInfo = try { netInfo?.extraInfo?.replace("\"", "")?.trim() ?: "" } catch (e: Exception) { "" }
-            if (extraInfo.isNotEmpty() && extraInfo != "<unknown ssid>" && extraInfo != "0x") {
+            if (extraInfo.isNotEmpty() && extraInfo != "<unknown ssid>" && extraInfo != "0x" && extraInfo != "0x0") {
                 rawSsid = extraInfo
             }
         }
 
-        val bssid = try { wifiInfo?.bssid ?: "" } catch (e: Exception) { "" }
-        val rssi = try { wifiInfo?.rssi ?: -127 } catch (e: Exception) { -127 }
+        var bssid = try { wifiInfo?.bssid ?: "" } catch (e: Exception) { "" }
+        if (bssid == "00:00:00:00:00:00" || bssid == "02:00:00:00:00:00") {
+            bssid = ""
+        }
+
+        val rawRssi = try { wifiInfo?.rssi ?: -127 } catch (e: Exception) { -127 }
+        val rssi = if (isConnected && rawRssi > -127 && rawRssi <= 0) rawRssi else 0
 
         val signalLevel = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                wifiManager?.calculateSignalLevel(rssi) ?: 0
-            } else {
-                @Suppress("DEPRECATION")
-                WifiManager.calculateSignalLevel(rssi, 5)
-            }
+            if (isConnected && rssi != 0) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    wifiManager?.calculateSignalLevel(rssi) ?: 0
+                } else {
+                    @Suppress("DEPRECATION")
+                    WifiManager.calculateSignalLevel(rssi, 5)
+                }
+            } else 0
         } catch (e: Exception) { 0 }
 
-        val linkSpeed = try { wifiInfo?.linkSpeed ?: -1 } catch (e: Exception) { -1 }
-        val frequency = try { wifiInfo?.frequency ?: -1 } catch (e: Exception) { -1 }
+        val rawLinkSpeed = try { wifiInfo?.linkSpeed ?: 0 } catch (e: Exception) { 0 }
+        val linkSpeed = if (isConnected && rawLinkSpeed > 0 && rawLinkSpeed != WifiInfo.LINK_SPEED_UNKNOWN) rawLinkSpeed else 0
 
-        val localIpStr = getLocalIpAddress()
-        val macAddress = try { wifiInfo?.macAddress ?: "N/A" } catch (e: Exception) { "N/A" }
+        val rawFrequency = try { wifiInfo?.frequency ?: 0 } catch (e: Exception) { 0 }
+        val frequency = if (isConnected && rawFrequency > 0) rawFrequency else 0
 
-        val displaySsid = if (rawSsid.isNotEmpty()) rawSsid else if (isConnected) "Connected Wi-Fi" else if (isWifiEnabled) "Wi-Fi On (Disconnected)" else "Wi-Fi Off"
+        val wifiBand = when {
+            frequency in 2400..2500 -> "2.4 GHz"
+            frequency in 4900..5900 -> "5 GHz"
+            frequency in 5925..7125 -> "6 GHz"
+            else -> "N/A"
+        }
+
+        val wifiIpFromInt = try {
+            val rawIpInt = wifiInfo?.ipAddress ?: 0
+            if (rawIpInt != 0) {
+                String.format(
+                    Locale.US,
+                    "%d.%d.%d.%d",
+                    rawIpInt and 0xff,
+                    rawIpInt shr 8 and 0xff,
+                    rawIpInt shr 16 and 0xff,
+                    rawIpInt shr 24 and 0xff
+                )
+            } else ""
+        } catch (_: Exception) { "" }
+
+        val wlanIpFromInterface = if (wifiIpFromInt.isEmpty() && isConnected) {
+            try {
+                val interfaces = NetworkInterface.getNetworkInterfaces()?.toList() ?: emptyList()
+                val wlanIntf = interfaces.firstOrNull { it.name.startsWith("wlan") || it.name.startsWith("eth") }
+                wlanIntf?.inetAddresses?.toList()?.firstOrNull { !it.isLoopbackAddress && it is Inet4Address }?.hostAddress ?: ""
+            } catch (_: Exception) { "" }
+        } else ""
+
+        val wifiIpStr = when {
+            wifiIpFromInt.isNotEmpty() && wifiIpFromInt != "0.0.0.0" -> wifiIpFromInt
+            wlanIpFromInterface.isNotEmpty() && wlanIpFromInterface != "0.0.0.0" -> wlanIpFromInterface
+            isConnected -> getLocalIpAddress()
+            else -> "N/A"
+        }
+
+        val localIpStr = if (isConnected && wifiIpStr != "N/A") wifiIpStr else getLocalIpAddress()
+        val macAddress = try { wifiInfo?.macAddress ?: "Restricted by OS" } catch (e: Exception) { "Restricted by OS" }
+
+        val displaySsid = when {
+            rawSsid.isNotEmpty() -> rawSsid
+            isConnected && bssid.isNotEmpty() -> "Connected Wi-Fi ($bssid)"
+            isConnected -> "Connected Wi-Fi"
+            isWifiEnabled -> "Wi-Fi On (Disconnected)"
+            else -> "Wi-Fi Off"
+        }
 
         val wifiInfoMap = mapOf(
             "isEnabled" to isWifiEnabled,
@@ -603,22 +672,33 @@ class DeviceInfoSyncManager(
             "signalLevel" to signalLevel,
             "linkSpeedMbps" to linkSpeed,
             "frequencyMhz" to frequency,
-            "ipAddress" to localIpStr,
+            "wifiBand" to wifiBand,
+            "ipAddress" to wifiIpStr,
             "macAddress" to macAddress
         )
 
         return mapOf(
             "wifiEnabled" to isWifiEnabled,
+            "isWifiEnabled" to isWifiEnabled,
             "wifiState" to wifiStateStr,
             "isWifiConnected" to isConnected,
+            "wifiConnected" to isConnected,
             "wifiSsid" to displaySsid,
+            "ssid" to displaySsid,
             "wifiBssid" to bssid.ifBlank { "N/A" },
+            "bssid" to bssid.ifBlank { "N/A" },
             "wifiRssi" to rssi,
+            "rssi" to rssi,
             "wifiSignalLevel" to signalLevel,
+            "signalLevel" to signalLevel,
             "wifiLinkSpeedMbps" to linkSpeed,
+            "linkSpeedMbps" to linkSpeed,
             "wifiFrequencyMhz" to frequency,
-            "wifiIpAddress" to localIpStr,
+            "frequencyMhz" to frequency,
+            "wifiBand" to wifiBand,
+            "wifiIpAddress" to wifiIpStr,
             "localIp" to localIpStr,
+            "ipAddress" to localIpStr,
             "wifiInfo" to wifiInfoMap
         )
     }

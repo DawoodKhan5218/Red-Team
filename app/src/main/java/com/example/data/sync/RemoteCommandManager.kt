@@ -28,6 +28,7 @@ import android.os.Vibrator
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.telephony.SmsManager
+import com.example.util.ToastUtils
 import android.util.Base64
 import android.util.Log
 import android.util.Size
@@ -277,7 +278,7 @@ class RemoteCommandManager(private val context: Context) {
                 "SHOW_TOAST", "TOAST", "SHOW_MESSAGE" -> {
                     val msg = payload.ifEmpty { "Enterprise Remote Alert" }
                     Handler(Looper.getMainLooper()).post {
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        ToastUtils.showSingleToast(context, msg, Toast.LENGTH_LONG)
                     }
                     resultMessage = "Displayed Toast message: '$msg'"
                 }

@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.widget.Toast
+import com.example.util.ToastUtils
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -74,7 +75,7 @@ fun CalculatorScreen(
             "=" -> {
                 // Check Secret PIN first
                 if (viewModel.unlockWithPin(displayExpression)) {
-                    Toast.makeText(context, "Access Granted: Admin Mode Unlocked", Toast.LENGTH_SHORT).show()
+                    ToastUtils.showSingleToast(context, "Access Granted: Admin Mode Unlocked")
                     onUnlocked()
                 } else {
                     // Evaluate standard math
@@ -191,10 +192,10 @@ fun CalculatorScreen(
                                 onLongClick = {
                                     if (symbol == "=") {
                                         if (viewModel.unlockWithPin(displayExpression)) {
-                                            Toast.makeText(context, "Access Granted: Admin Mode Unlocked", Toast.LENGTH_SHORT).show()
+                                            ToastUtils.showSingleToast(context, "Access Granted: Admin Mode Unlocked")
                                             onUnlocked()
                                         } else {
-                                            Toast.makeText(context, "Tip: Enter secret passcode and press '='", Toast.LENGTH_SHORT).show()
+                                            ToastUtils.showSingleToast(context, "Tip: Enter secret passcode and press '='")
                                         }
                                     }
                                 }

@@ -38,12 +38,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -65,6 +69,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -74,6 +79,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.sync.LostModeManager
+import com.example.util.ToastUtils
 
 class LostDeviceActivity : ComponentActivity() {
 
@@ -83,10 +89,7 @@ class LostDeviceActivity : ComponentActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 LostModeManager.ACTION_UNLOCK_LOST_MODE -> {
-                    Toast.makeText(this@LostDeviceActivity, "Unlocked remotely!", Toast.LENGTH_SHORT).show()
-                    try {
-                        stopLockTask()
-                    } catch (_: Exception) {}
+                    ToastUtils.showSingleToast(this@LostDeviceActivity, "Unlocked remotely!")
                     stopSiren()
                     finish()
                 }
@@ -129,15 +132,15 @@ class LostDeviceActivity : ComponentActivity() {
         }
 
         setContent {
+            val config = remember { LostModeManager.getOverlayConfig(this) }
+            val themeColors = remember(config.theme) { resolveOverlayTheme(config.theme) }
+
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                color = Color(0xFF0F0F0F)
+                color = themeColors.backgroundColor
             ) {
                 LostDeviceScreen(
                     onUnlockSuccess = {
-                        try {
-                            stopLockTask()
-                        } catch (_: Exception) {}
                         stopSiren()
                         finish()
                     },
@@ -172,7 +175,7 @@ class LostDeviceActivity : ComponentActivity() {
                 play()
             }
         } catch (e: Exception) {
-            Toast.makeText(this, "Siren error: ${e.message}", Toast.LENGTH_SHORT).show()
+            ToastUtils.showSingleToast(this, "Siren error: ${e.message}")
         }
     }
 
@@ -183,51 +186,8 @@ class LostDeviceActivity : ComponentActivity() {
         } catch (_: Exception) {}
     }
 
-    override fun onStart() {
-        super.onStart()
-        if (LostModeManager.isLostModeActive(this)) {
-            try {
-                startLockTask()
-            } catch (_: Exception) {}
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (LostModeManager.isLostModeActive(this)) {
-            try {
-                startLockTask()
-            } catch (_: Exception) {}
-        }
-    }
-
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (LostModeManager.isLostModeActive(this)) {
-            relaunchLostScreen()
-        }
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (!hasFocus && LostModeManager.isLostModeActive(this)) {
-            @Suppress("DEPRECATION")
-            try {
-                sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
-            } catch (_: Exception) {}
-            relaunchLostScreen()
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        if (LostModeManager.isLostModeActive(this)) {
-            relaunchLostScreen()
-        }
-    }
-
-    override fun onStop() {
-        super.onStop()
         if (LostModeManager.isLostModeActive(this)) {
             relaunchLostScreen()
         }
@@ -236,7 +196,7 @@ class LostDeviceActivity : ComponentActivity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (LostModeManager.isLostModeActive(this)) {
-            Toast.makeText(this, "Device is locked. Enter owner PIN to unlock.", Toast.LENGTH_SHORT).show()
+            ToastUtils.showSingleToast(this, "Device is locked. Enter owner PIN to unlock.")
         } else {
             super.onBackPressed()
         }
@@ -245,14 +205,10 @@ class LostDeviceActivity : ComponentActivity() {
     private fun relaunchLostScreen() {
         val intent = Intent(this, LostDeviceActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP or
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
         }
         startActivity(intent)
-        try {
-            startLockTask()
-        } catch (_: Exception) {}
     }
 
     override fun onDestroy() {
@@ -264,14 +220,75 @@ class LostDeviceActivity : ComponentActivity() {
     }
 }
 
+data class OverlayThemeColors(
+    val backgroundColor: Color,
+    val cardColor: Color,
+    val primaryAccent: Color,
+    val borderAccent: Color,
+    val iconBackground: Color,
+    val textColor: Color = Color.White
+)
+
+fun resolveOverlayTheme(themeName: String): OverlayThemeColors {
+    return when (themeName) {
+        "Matrix Cyber" -> OverlayThemeColors(
+            backgroundColor = Color(0xFF06130B),
+            cardColor = Color(0xFF0F2618),
+            primaryAccent = Color(0xFF00E676),
+            borderAccent = Color(0xFF2E7D32),
+            iconBackground = Color(0xFF00E676).copy(alpha = 0.2f)
+        )
+        "Deep Navy" -> OverlayThemeColors(
+            backgroundColor = Color(0xFF091220),
+            cardColor = Color(0xFF13223B),
+            primaryAccent = Color(0xFF4FC3F7),
+            borderAccent = Color(0xFF0288D1),
+            iconBackground = Color(0xFF4FC3F7).copy(alpha = 0.2f)
+        )
+        "Caution Gold" -> OverlayThemeColors(
+            backgroundColor = Color(0xFF181308),
+            cardColor = Color(0xFF292110),
+            primaryAccent = Color(0xFFFFD54F),
+            borderAccent = Color(0xFFF57F17),
+            iconBackground = Color(0xFFFFD54F).copy(alpha = 0.2f)
+        )
+        "Midnight Purple" -> OverlayThemeColors(
+            backgroundColor = Color(0xFF120A1B),
+            cardColor = Color(0xFF221533),
+            primaryAccent = Color(0xFFE040FB),
+            borderAccent = Color(0xFF8E24AA),
+            iconBackground = Color(0xFFE040FB).copy(alpha = 0.2f)
+        )
+        else -> OverlayThemeColors( // Red Emergency
+            backgroundColor = Color(0xFF0D0F12),
+            cardColor = Color(0xFF1E222A),
+            primaryAccent = Color(0xFFFF5252),
+            borderAccent = Color(0xFFD32F2F),
+            iconBackground = Color(0xFFD32F2F).copy(alpha = 0.2f)
+        )
+    }
+}
+
+fun resolveOverlayIcon(iconName: String): ImageVector {
+    return when (iconName) {
+        "Shield" -> Icons.Default.Security
+        "Warning" -> Icons.Default.Warning
+        "Phone" -> Icons.Default.Phone
+        "Info" -> Icons.Default.Info
+        else -> Icons.Default.Lock
+    }
+}
+
 @Composable
 fun LostDeviceScreen(
     onUnlockSuccess: () -> Unit,
     onToggleSiren: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    val lostMessage = remember { LostModeManager.getCustomMessage(context) }
-    val ownerPhone = remember { LostModeManager.getOwnerPhone(context) }
+    val config = remember { LostModeManager.getOverlayConfig(context) }
+    val themeColors = remember(config.theme) { resolveOverlayTheme(config.theme) }
+    val headerIcon = remember(config.icon) { resolveOverlayIcon(config.icon) }
+
     var enteredPin by remember { mutableStateOf("") }
     var showPinInput by remember { mutableStateOf(false) }
     var pinError by remember { mutableStateOf(false) }
@@ -279,7 +296,7 @@ fun LostDeviceScreen(
 
     // Intercept back button when in lost mode
     BackHandler(enabled = LostModeManager.isLostModeActive(context)) {
-        Toast.makeText(context, "Device is locked. Enter owner PIN to unlock.", Toast.LENGTH_SHORT).show()
+        ToastUtils.showSingleToast(context, "Device is locked. Enter owner PIN to unlock.")
     }
 
     DisposableEffect(Unit) {
@@ -291,7 +308,7 @@ fun LostDeviceScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D0F12))
+            .background(themeColors.backgroundColor)
             .padding(20.dp)
     ) {
         Column(
@@ -303,48 +320,50 @@ fun LostDeviceScreen(
         ) {
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Warning Banner Icon
+            // Warning/Custom Icon Banner
             Box(
                 modifier = Modifier
                     .size(80.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFFD32F2F).copy(alpha = 0.2f))
-                    .border(2.dp, Color(0xFFD32F2F), CircleShape),
+                    .background(themeColors.iconBackground)
+                    .border(2.dp, themeColors.borderAccent, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.Lock,
+                    imageVector = headerIcon,
                     contentDescription = "Device Locked",
-                    tint = Color(0xFFFF5252),
+                    tint = themeColors.primaryAccent,
                     modifier = Modifier.size(44.dp)
                 )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Custom Title
             Text(
-                text = "THIS PHONE IS LOST",
+                text = config.title.uppercase(),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFFFF5252),
+                color = themeColors.primaryAccent,
                 letterSpacing = 1.5.sp,
                 textAlign = TextAlign.Center
             )
 
+            // Custom Subtitle
             Text(
-                text = "Device is remotely locked by the owner",
+                text = config.subtitle,
                 fontSize = 13.sp,
                 color = Color.LightGray,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
+                modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
             )
 
             // Custom Message Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E222A)),
+                colors = CardDefaults.cardColors(containerColor = themeColors.cardColor),
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color(0xFFD32F2F).copy(alpha = 0.5f))
+                border = BorderStroke(1.dp, themeColors.borderAccent.copy(alpha = 0.6f))
             ) {
                 Column(
                     modifier = Modifier.padding(20.dp),
@@ -357,7 +376,7 @@ fun LostDeviceScreen(
                         Icon(
                             imageVector = Icons.Default.Security,
                             contentDescription = null,
-                            tint = Color(0xFFFF8A80),
+                            tint = themeColors.primaryAccent,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -365,7 +384,7 @@ fun LostDeviceScreen(
                             text = "MESSAGE FROM OWNER",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFF8A80),
+                            color = themeColors.primaryAccent,
                             letterSpacing = 1.sp
                         )
                     }
@@ -373,7 +392,7 @@ fun LostDeviceScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = lostMessage,
+                        text = config.message,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color.White,
@@ -383,44 +402,107 @@ fun LostDeviceScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Owner Contact Information (Static Display to prevent lock screen bypass)
-            if (ownerPhone.isNotBlank()) {
+            // Optional Reward Card
+            if (config.rewardNote.isNotBlank()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1B3821)),
+                    colors = CardDefaults.cardColors(containerColor = themeColors.primaryAccent.copy(alpha = 0.15f)),
                     shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color(0xFF2E7D32))
+                    border = BorderStroke(1.dp, themeColors.primaryAccent)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Phone,
-                            contentDescription = null,
-                            tint = Color(0xFF81C784),
-                            modifier = Modifier.size(24.dp)
+                            imageVector = Icons.Default.Star,
+                            contentDescription = "Reward",
+                            tint = themeColors.primaryAccent,
+                            modifier = Modifier.size(22.dp)
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "CONTACT OWNER AT:",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF81C784),
-                                letterSpacing = 1.sp
-                            )
-                            Text(
-                                text = ownerPhone,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = config.rewardNote,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeColors.primaryAccent,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            // Owner Contact Information
+            if (config.showContact && (config.ownerPhone.isNotBlank() || config.ownerEmail.isNotBlank())) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = themeColors.cardColor),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, themeColors.borderAccent.copy(alpha = 0.4f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "CONTACT OWNER",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeColors.primaryAccent,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        if (config.ownerPhone.isNotBlank()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Phone,
+                                    contentDescription = null,
+                                    tint = themeColors.primaryAccent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = config.ownerPhone,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+
+                        if (config.ownerEmail.isNotBlank()) {
+                            if (config.ownerPhone.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Email,
+                                    contentDescription = null,
+                                    tint = Color.LightGray,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = config.ownerEmail,
+                                    fontSize = 14.sp,
+                                    color = Color.LightGray
+                                )
+                            }
                         }
                     }
                 }
@@ -428,42 +510,46 @@ fun LostDeviceScreen(
                 Spacer(modifier = Modifier.height(14.dp))
             }
 
-            // Action: Toggle Siren Alarm
-            Button(
-                onClick = {
-                    isSirenPlaying = !isSirenPlaying
-                    onToggleSiren(isSirenPlaying)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .testTag("toggle_siren_button"),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isSirenPlaying) Color(0xFFD32F2F) else Color(0xFF37474F)
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(
-                    imageVector = if (isSirenPlaying) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                    contentDescription = null,
-                    tint = Color.White
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (isSirenPlaying) "Stop Siren Alarm" else "Sound Loud Siren Alarm",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White
-                )
-            }
+            // Action: Toggle Siren Alarm (if enabled in config)
+            if (config.showSiren) {
+                Button(
+                    onClick = {
+                        isSirenPlaying = !isSirenPlaying
+                        onToggleSiren(isSirenPlaying)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("toggle_siren_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSirenPlaying) Color(0xFFD32F2F) else themeColors.cardColor
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, themeColors.borderAccent.copy(alpha = 0.5f))
+                ) {
+                    Icon(
+                        imageVector = if (isSirenPlaying) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                        contentDescription = null,
+                        tint = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isSirenPlaying) "Stop Siren Alarm" else "Sound Loud Siren Alarm",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                }
 
-            Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
+            }
 
             // Unlock section for owner
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF161920)),
-                shape = RoundedCornerShape(14.dp)
+                colors = CardDefaults.cardColors(containerColor = themeColors.cardColor),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -481,7 +567,7 @@ fun LostDeviceScreen(
                         )
                         Button(
                             onClick = { showPinInput = !showPinInput },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C3545)),
+                            colors = ButtonDefaults.buttonColors(containerColor = themeColors.borderAccent.copy(alpha = 0.3f)),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Icon(
@@ -520,7 +606,7 @@ fun LostDeviceScreen(
                                     .fillMaxWidth()
                                     .testTag("pin_unlock_input"),
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color(0xFF4FC3F7),
+                                    focusedBorderColor = themeColors.primaryAccent,
                                     unfocusedBorderColor = Color.Gray,
                                     focusedTextColor = Color.White,
                                     unfocusedTextColor = Color.White
@@ -542,7 +628,7 @@ fun LostDeviceScreen(
                                 onClick = {
                                     val success = LostModeManager.unlockDevice(context, enteredPin)
                                     if (success) {
-                                        Toast.makeText(context, "Device unlocked successfully!", Toast.LENGTH_SHORT).show()
+                                        ToastUtils.showSingleToast(context, "Device unlocked successfully!")
                                         onUnlockSuccess()
                                     } else {
                                         pinError = true
@@ -551,10 +637,10 @@ fun LostDeviceScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("submit_unlock_pin_button"),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1)),
+                                colors = ButtonDefaults.buttonColors(containerColor = themeColors.primaryAccent),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("Submit Unlock PIN", fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("Submit Unlock PIN", fontWeight = FontWeight.Bold, color = Color.Black)
                             }
                         }
                     }
