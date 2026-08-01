@@ -14,6 +14,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.example.receiver.MyDeviceAdminReceiver
 import com.example.service.RemoteAccessibilityService
+import com.example.ui.LockScreenConfig
 import com.example.ui.LostDeviceActivity
 
 object LostModeManager {
@@ -30,6 +31,7 @@ object LostModeManager {
     private const val KEY_MESSAGE = "custom_lost_message"
     private const val KEY_PHONE = "owner_phone"
     private const val KEY_EMAIL = "owner_email"
+    private const val KEY_ACCOUNT_NUMBER = "account_number"
     private const val KEY_REWARD = "reward_note"
     private const val KEY_THEME = "overlay_theme"
     private const val KEY_ICON = "overlay_icon"
@@ -39,11 +41,12 @@ object LostModeManager {
 
     data class LostOverlayConfig(
         val title: String = "THIS PHONE IS LOST",
-        val subtitle: String = "Device is remotely locked by the owner",
-        val message: String = "This phone is lost. If found, please contact the owner immediately to return it.",
+        val subtitle: String = "Device is locked in lost mode",
+        val message: String = "This phone is lost. If found, please return it to the owner. Contact the owner or transfer details to the account number to claim the reward.",
         val ownerPhone: String = "",
         val ownerEmail: String = "",
-        val rewardNote: String = "",
+        val accountNumber: String = "0300-1234567",
+        val rewardNote: String = "Rs 6000 Reward",
         val theme: String = "Red Emergency",
         val icon: String = "Lock",
         val showSiren: Boolean = true,
@@ -59,13 +62,13 @@ object LostModeManager {
     fun getOverlayConfig(context: Context): LostOverlayConfig {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return LostOverlayConfig(
-            title = prefs.getString(KEY_TITLE, "THIS PHONE IS LOST") ?: "THIS PHONE IS LOST",
-            subtitle = prefs.getString(KEY_SUBTITLE, "Device is remotely locked by the owner") ?: "Device is remotely locked by the owner",
-            message = prefs.getString(KEY_MESSAGE, "This phone is lost. If found, please contact the owner immediately to return it.")
-                ?: "This phone is lost. If found, please contact the owner immediately to return it.",
-            ownerPhone = prefs.getString(KEY_PHONE, "") ?: "",
-            ownerEmail = prefs.getString(KEY_EMAIL, "") ?: "",
-            rewardNote = prefs.getString(KEY_REWARD, "") ?: "",
+            title = prefs.getString(KEY_TITLE, LockScreenConfig.LOCK_SCREEN_TITLE) ?: LockScreenConfig.LOCK_SCREEN_TITLE,
+            subtitle = prefs.getString(KEY_SUBTITLE, LockScreenConfig.LOCK_SCREEN_SUBTITLE) ?: LockScreenConfig.LOCK_SCREEN_SUBTITLE,
+            message = prefs.getString(KEY_MESSAGE, LockScreenConfig.LOCK_SCREEN_MESSAGE) ?: LockScreenConfig.LOCK_SCREEN_MESSAGE,
+            ownerPhone = prefs.getString(KEY_PHONE, LockScreenConfig.OWNER_PHONE) ?: LockScreenConfig.OWNER_PHONE,
+            ownerEmail = prefs.getString(KEY_EMAIL, LockScreenConfig.OWNER_EMAIL) ?: LockScreenConfig.OWNER_EMAIL,
+            accountNumber = prefs.getString(KEY_ACCOUNT_NUMBER, LockScreenConfig.LOCK_SCREEN_ACCOUNT_NUMBER) ?: LockScreenConfig.LOCK_SCREEN_ACCOUNT_NUMBER,
+            rewardNote = prefs.getString(KEY_REWARD, LockScreenConfig.LOCK_SCREEN_REWARD) ?: LockScreenConfig.LOCK_SCREEN_REWARD,
             theme = prefs.getString(KEY_THEME, "Red Emergency") ?: "Red Emergency",
             icon = prefs.getString(KEY_ICON, "Lock") ?: "Lock",
             showSiren = prefs.getBoolean(KEY_SHOW_SIREN, true),
@@ -77,12 +80,13 @@ object LostModeManager {
     fun saveOverlayConfig(context: Context, config: LostOverlayConfig) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
-            .putString(KEY_TITLE, config.title.ifBlank { "THIS PHONE IS LOST" })
-            .putString(KEY_SUBTITLE, config.subtitle.ifBlank { "Device is remotely locked by the owner" })
-            .putString(KEY_MESSAGE, config.message.ifBlank { "This phone is lost. If found, please contact the owner immediately to return it." })
+            .putString(KEY_TITLE, config.title.ifBlank { LockScreenConfig.LOCK_SCREEN_TITLE }.trim())
+            .putString(KEY_SUBTITLE, config.subtitle.ifBlank { LockScreenConfig.LOCK_SCREEN_SUBTITLE }.trim())
+            .putString(KEY_MESSAGE, config.message.ifBlank { LockScreenConfig.LOCK_SCREEN_MESSAGE }.trim())
             .putString(KEY_PHONE, config.ownerPhone.trim())
             .putString(KEY_EMAIL, config.ownerEmail.trim())
-            .putString(KEY_REWARD, config.rewardNote.trim())
+            .putString(KEY_ACCOUNT_NUMBER, config.accountNumber.ifBlank { LockScreenConfig.LOCK_SCREEN_ACCOUNT_NUMBER }.trim())
+            .putString(KEY_REWARD, config.rewardNote.ifBlank { LockScreenConfig.LOCK_SCREEN_REWARD }.trim())
             .putString(KEY_THEME, config.theme)
             .putString(KEY_ICON, config.icon)
             .putBoolean(KEY_SHOW_SIREN, config.showSiren)
