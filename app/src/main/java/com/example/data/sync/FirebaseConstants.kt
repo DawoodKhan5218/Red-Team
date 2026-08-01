@@ -12,7 +12,5 @@ object FirebaseConstants {
     fun getDeviceInfoPath(deviceId: String): String = "devices/$deviceId/device_info"
     fun getLocationCurrentPath(deviceId: String): String = "devices/$deviceId/location/current"
     fun getLocationHistoryPath(deviceId: String, timestamp: Long): String = "devices/$deviceId/location/history/$timestamp"
-    fun getGalleryPath(deviceId: String): String = "devices/$deviceId/gallery"
-    fun getGalleryMetaPath(deviceId: String): String = "devices/$deviceId/gallery_meta"
     fun getCommandsPath(deviceId: String): String = "devices/$deviceId/commands"
 }
