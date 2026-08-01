@@ -14,7 +14,18 @@ class RemoteAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Accessibility event monitoring
+        if (event == null) return
+        if (LostModeManager.isLostModeActive(this)) {
+            val eventType = event.eventType
+            if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+            ) {
+                val pkgName = event.packageName?.toString() ?: ""
+                if (pkgName.isNotEmpty() && pkgName != packageName && !pkgName.contains("inputmethod")) {
+                    LostModeManager.launchLostActivity(this)
+                }
+            }
+        }
     }
 
     override fun onInterrupt() {

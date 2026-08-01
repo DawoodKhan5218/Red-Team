@@ -205,7 +205,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun unlockWithPin(inputPin: String): Boolean {
         val cleanInput = inputPin.replace("=", "").trim()
         val currentPin = _calculatorPin.value.replace("=", "").trim()
-        if (cleanInput == currentPin || cleanInput == "5218" || cleanInput == "8888") {
+        if (cleanInput == currentPin) {
             _isUnlocked.value = true
             return true
         }

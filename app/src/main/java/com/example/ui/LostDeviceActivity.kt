@@ -77,8 +77,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import androidx.compose.ui.unit.sp
 import com.example.data.sync.LostModeManager
+import com.example.receiver.MyDeviceAdminReceiver
 import com.example.util.ToastUtils
 
 class LostDeviceActivity : ComponentActivity() {
@@ -90,6 +93,7 @@ class LostDeviceActivity : ComponentActivity() {
             when (intent?.action) {
                 LostModeManager.ACTION_UNLOCK_LOST_MODE -> {
                     ToastUtils.showSingleToast(this@LostDeviceActivity, "Unlocked remotely!")
+                    stopLockTaskIfNeeded()
                     stopSiren()
                     finish()
                 }
@@ -103,6 +107,9 @@ class LostDeviceActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Enable screen pinning (lock task mode) to suppress Home and Recent apps buttons
+        startLockTaskIfNeeded()
 
         // Register broadcast receiver for remote actions
         val filter = IntentFilter().apply {
@@ -141,6 +148,7 @@ class LostDeviceActivity : ComponentActivity() {
             ) {
                 LostDeviceScreen(
                     onUnlockSuccess = {
+                        stopLockTaskIfNeeded()
                         stopSiren()
                         finish()
                     },
@@ -184,6 +192,59 @@ class LostDeviceActivity : ComponentActivity() {
             activeSiren?.stop()
             activeSiren = null
         } catch (_: Exception) {}
+    }
+
+    private fun startLockTaskIfNeeded() {
+        if (!LostModeManager.isLostModeActive(this)) return
+        try {
+            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+            val adminComponent = ComponentName(this, MyDeviceAdminReceiver::class.java)
+            if (dpm != null && (dpm.isDeviceOwnerApp(packageName) || dpm.isAdminActive(adminComponent))) {
+                try {
+                    dpm.setLockTaskPackages(adminComponent, arrayOf(packageName))
+                } catch (e: Exception) {
+                    android.util.Log.e("LostDeviceActivity", "LockTask packages config notice: ${e.message}")
+                }
+            }
+            startLockTask()
+        } catch (e: Exception) {
+            android.util.Log.e("LostDeviceActivity", "startLockTask notice: ${e.message}")
+        }
+    }
+
+    private fun stopLockTaskIfNeeded() {
+        try {
+            stopLockTask()
+        } catch (e: Exception) {
+            android.util.Log.e("LostDeviceActivity", "stopLockTask notice: ${e.message}")
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (LostModeManager.isLostModeActive(this)) {
+            startLockTaskIfNeeded()
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus && LostModeManager.isLostModeActive(this)) {
+            try {
+                @Suppress("DEPRECATION")
+                val closeDialogs = Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+                sendBroadcast(closeDialogs)
+            } catch (_: Exception) {}
+            startLockTaskIfNeeded()
+            relaunchLostScreen()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (LostModeManager.isLostModeActive(this)) {
+            relaunchLostScreen()
+        }
     }
 
     override fun onUserLeaveHint() {

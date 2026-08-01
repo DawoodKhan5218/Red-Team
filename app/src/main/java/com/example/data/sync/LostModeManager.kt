@@ -203,7 +203,7 @@ object LostModeManager {
 
     fun unlockDevice(context: Context, enteredPin: String): Boolean {
         val actualPin = getUnlockPin(context)
-        if (enteredPin.trim() == actualPin.trim() || enteredPin.trim() == "9999") { // Allow master unlock 9999
+        if (enteredPin.trim() == actualPin.trim()) {
             return forceUnlockDevice(context)
         }
         return false
