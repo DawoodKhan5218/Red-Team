@@ -199,7 +199,13 @@ object LostModeManager {
             val accLocked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
             } else false
-            lockStatus = if (accLocked) "Locked screen via Accessibility Service." else "Screen lock trigger attempted (Lost mode screen overlay active)."
+            lockStatus = if (accLocked) {
+                "Locked screen via Accessibility Service."
+            } else if (!RemoteAccessibilityService.isServiceEnabled()) {
+                "Lost Mode overlay active (Note: Accessibility Service is OFF - enable in Settings for hardware lock)."
+            } else {
+                "Screen lock trigger attempted (Lost mode screen overlay active)."
+            }
         }
 
         return "Lost Mode Activated! Custom message displayed on screen. $lockStatus"

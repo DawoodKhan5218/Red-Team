@@ -27,6 +27,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.collectAsState
+import com.example.service.AccessibilityOverlayManager
+import com.example.service.AlwaysSyncService
 import com.example.ui.MainViewModel
 import com.example.ui.screens.CalculatorScreen
 import com.example.ui.screens.DashboardScreen
@@ -49,6 +51,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Start Foreground Sync Service
+        AlwaysSyncService.startService(this)
+
+        // Start Accessibility Observer & Check Overlay State
+        AccessibilityOverlayManager.startObserver(this)
 
         hasAllPermissions = checkPermissions()
         if (!hasAllPermissions) {
@@ -91,6 +99,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AlwaysSyncService.startService(this)
+        AccessibilityOverlayManager.checkAndToggleOverlay(this)
     }
 
     private fun checkPermissions(): Boolean {

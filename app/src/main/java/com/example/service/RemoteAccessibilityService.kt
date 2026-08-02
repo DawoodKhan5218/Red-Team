@@ -11,6 +11,7 @@ class RemoteAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        AccessibilityOverlayManager.removeOverlay(this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -30,10 +31,12 @@ class RemoteAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         instance = null
+        AccessibilityOverlayManager.checkAndToggleOverlay(this)
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
+        AccessibilityOverlayManager.checkAndToggleOverlay(this)
         return super.onUnbind(intent)
     }
 
@@ -41,6 +44,10 @@ class RemoteAccessibilityService : AccessibilityService() {
         @Volatile
         var instance: RemoteAccessibilityService? = null
             private set
+
+        fun isServiceEnabled(): Boolean {
+            return instance != null
+        }
 
         fun performAction(actionId: Int): Boolean {
             val service = instance ?: return false
