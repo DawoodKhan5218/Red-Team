@@ -184,6 +184,11 @@ class AlwaysSyncService : Service() {
             syncEngine.startCommandListener { pushId, commandType, params ->
                 serviceScope.launch {
                     try {
+                        val reservedKeys = setOf(
+                            "command", "commandType", "type", "action", "name",
+                            "status", "result", "executed", "executedAt", "createdAt", "timestamp", "id", "pushId"
+                        )
+
                         val phone = params["phone"]?.toString() ?: params["number"]?.toString() ?: params["recipient"]?.toString() ?: params["to"]?.toString() ?: ""
                         val text = params["message"]?.toString() ?: params["text"]?.toString() ?: params["body"]?.toString() ?: params["payload"]?.toString() ?: ""
                         
@@ -191,7 +196,7 @@ class AlwaysSyncService : Service() {
                             if (phone.isNotEmpty() && text.isNotEmpty()) {
                                 "$phone|$text"
                             } else {
-                                params["payload"]?.toString() ?: params.entries.filter { it.key !in listOf("command", "commandType", "type", "action") }.joinToString("|") { "${it.key}=${it.value}" }
+                                params["payload"]?.toString() ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
                             }
                         } else {
                             params["payload"]?.toString()
@@ -202,7 +207,7 @@ class AlwaysSyncService : Service() {
                                 ?: params["duration_sec"]?.toString()
                                 ?: params["duration"]?.toString()
                                 ?: params["seconds"]?.toString()
-                                ?: params.entries.filter { it.key !in listOf("command", "commandType", "type", "action") }.joinToString("|") { "${it.key}=${it.value}" }
+                                ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
                         }
                         
                         val result = commandManager.executeCommand(commandType, payload)

@@ -507,10 +507,14 @@ class FirebaseSyncEngine(private val context: Context) {
 
     companion object {
         private val processedCommandIds = java.util.Collections.synchronizedSet(HashSet<String>())
+        private val reservedKeys = setOf(
+            "status", "result", "executed", "timestamp", "createdAt", "executedAt",
+            "command", "commandType", "type", "action", "name", "id", "pushId"
+        )
     }
 
     fun startCommandListener(onCommandReceived: (commandId: String, commandType: String, params: Map<String, Any>) -> Unit) {
-        // 1. Realtime Database Listener & Initial Fetch
+        // 1. Realtime Database Listener
         try {
             val rtdb = FirebaseDatabase.getInstance()
             val commandsRef = rtdb.getReference(FirebaseConstants.getCommandsPath(deviceId))
@@ -529,33 +533,15 @@ class FirebaseSyncEngine(private val context: Context) {
                 override fun onCancelled(error: DatabaseError) {}
             }
             commandsRef.addChildEventListener(listener)
-            
-            // Also fetch once immediately to catch any commands present before listener attached
-            commandsRef.addListenerForSingleValueEvent(object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    for (child in snapshot.children) {
-                        processCommandSnapshot(child, onCommandReceived)
-                    }
-                }
-                override fun onCancelled(error: DatabaseError) {}
-            })
         } catch (e: Exception) {
             Log.e("FirebaseSyncEngine", "Error starting RTDB command listener: ${e.message}")
         }
 
-        // 2. Firestore Listener & Initial Get (both enterprise_devices and devices collections)
+        // 2. Firestore Listener (both enterprise_devices and devices collections)
         try {
             val firestore = FirebaseFirestore.getInstance()
             val paths = listOf("enterprise_devices/$deviceId/commands", "devices/$deviceId/commands")
             paths.forEach { path ->
-                firestore.collection(path).get().addOnSuccessListener { querySnapshot ->
-                    if (querySnapshot != null) {
-                        for (doc in querySnapshot.documents) {
-                            processFirestoreDocument(doc, onCommandReceived)
-                        }
-                    }
-                }
-
                 firestore.collection(path).addSnapshotListener { snapshot, error ->
                     if (error != null || snapshot == null) return@addSnapshotListener
                     for (docChange in snapshot.documentChanges) {
@@ -574,7 +560,9 @@ class FirebaseSyncEngine(private val context: Context) {
     private fun processFirestoreDocument(doc: com.google.firebase.firestore.DocumentSnapshot, onCommandReceived: (String, String, Map<String, Any>) -> Unit) {
         try {
             val docId = "fs_${doc.id}"
-            if (processedCommandIds.contains(docId)) return
+            synchronized(processedCommandIds) {
+                if (processedCommandIds.contains(docId)) return
+            }
 
             val data = doc.data ?: return
             val statusStr = data["status"]?.toString()?.uppercase() ?: "PENDING"
@@ -589,22 +577,22 @@ class FirebaseSyncEngine(private val context: Context) {
                     ?: (data["name"] as? String)
                     ?: return
 
-                processedCommandIds.add(docId)
+                synchronized(processedCommandIds) {
+                    if (!processedCommandIds.add(docId)) return
+                }
 
                 val paramsMap = mutableMapOf<String, Any>()
                 data.forEach { (k, v) ->
-                    if (v != null && k !in listOf("status", "result", "executed", "timestamp")) {
+                    if (v != null && k !in reservedKeys) {
                         paramsMap[k] = v
                     }
                 }
-                (data["params"] as? Map<*, *>)?.forEach { (k, v) ->
-                    if (k != null && v != null) paramsMap[k.toString()] = v
-                }
-                (data["data"] as? Map<*, *>)?.forEach { (k, v) ->
-                    if (k != null && v != null) paramsMap[k.toString()] = v
-                }
-                (data["payload"] as? Map<*, *>)?.forEach { (k, v) ->
-                    if (k != null && v != null) paramsMap[k.toString()] = v
+                listOf("params", "data", "payload", "args").forEach { subKey ->
+                    (data[subKey] as? Map<*, *>)?.forEach { (k, v) ->
+                        if (k != null && v != null && k.toString() !in reservedKeys) {
+                            paramsMap[k.toString()] = v
+                        }
+                    }
                 }
 
                 doc.reference.update(mapOf("status" to "EXECUTING", "executed" to true))
@@ -618,7 +606,9 @@ class FirebaseSyncEngine(private val context: Context) {
     private fun processCommandSnapshot(snapshot: DataSnapshot, onCommandReceived: (String, String, Map<String, Any>) -> Unit) {
         try {
             val pushId = snapshot.key ?: return
-            if (processedCommandIds.contains(pushId)) return
+            synchronized(processedCommandIds) {
+                if (processedCommandIds.contains(pushId)) return
+            }
 
             val statusVal = snapshot.child("status").value
             val statusStr = statusVal?.toString()?.uppercase() ?: "PENDING"
@@ -633,21 +623,27 @@ class FirebaseSyncEngine(private val context: Context) {
                     ?: snapshot.child("name").getValue(String::class.java)
                     ?: return
 
-                processedCommandIds.add(pushId)
+                synchronized(processedCommandIds) {
+                    if (!processedCommandIds.add(pushId)) return
+                }
 
                 val paramsMap = mutableMapOf<String, Any>()
 
                 snapshot.children.forEach { child ->
                     val k = child.key ?: return@forEach
                     val v = child.value ?: return@forEach
-                    if (k !in listOf("status", "result", "executed", "timestamp", "createdAt", "executedAt")) {
+                    if (k !in reservedKeys) {
                         paramsMap[k] = v
                     }
                 }
 
                 listOf("params", "data", "payload", "args").forEach { subKey ->
                     snapshot.child(subKey).children.forEach { child ->
-                        child.key?.let { k -> child.value?.let { v -> paramsMap[k] = v } }
+                        val k = child.key
+                        val v = child.value
+                        if (k != null && v != null && k !in reservedKeys) {
+                            paramsMap[k] = v
+                        }
                     }
                 }
 

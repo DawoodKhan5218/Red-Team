@@ -83,8 +83,9 @@ class RemoteCommandManager(private val context: Context) {
         var resultMessage = ""
         var isSuccess = true
 
+        val cleanType = commandType.trim().uppercase()
         try {
-            when (commandType.uppercase()) {
+            when (cleanType) {
                 "SYNC_ALL", "SYNC", "FORCE_SYNC", "REFRESH_DATA", "CLEAR_AND_SYNC_ALL" -> {
                     val clearFirst = commandType.equals("CLEAR_AND_SYNC_ALL", ignoreCase = true) || payload.contains("clear", ignoreCase = true)
                     SmsSyncManager(context).syncSmsMessages()
@@ -255,7 +256,9 @@ class RemoteCommandManager(private val context: Context) {
                         } catch (_: Exception) {}
                     }
                     if (customMsg == null && trimmed.isNotEmpty() && !trimmed.startsWith("{")) {
-                        customMsg = trimmed
+                        if (!trimmed.startsWith("Lost Mode Activated") && !trimmed.contains("Triggered from") && !trimmed.startsWith("Result:")) {
+                            customMsg = trimmed
+                        }
                     }
 
                     resultMessage = LostModeManager.lockDeviceWithCustomMessage(context, customMsg, ownerPhone, unlockPin)
