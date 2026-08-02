@@ -1,6 +1,8 @@
 package com.example.data.sync
 
 import android.annotation.SuppressLint
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.graphics.ImageFormat
 import android.hardware.camera2.CameraAccessException
@@ -14,6 +16,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Base64
 import android.util.Size
+import com.example.receiver.MyDeviceAdminReceiver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.CountDownLatch
@@ -47,11 +50,35 @@ class CameraHelper(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     suspend fun takePhoto(cameraId: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+            val adminComponent = ComponentName(context, MyDeviceAdminReceiver::class.java)
+            if (dpm != null && dpm.isAdminActive(adminComponent)) {
+                if (dpm.getCameraDisabled(adminComponent)) {
+                    dpm.setCameraDisabled(adminComponent, false)
+                }
+            }
+        } catch (_: Exception) {}
+
         val characteristics = try {
             cameraManager.getCameraCharacteristics(cameraId)
         } catch (e: CameraAccessException) {
             when (e.reason) {
-                CameraAccessException.CAMERA_DISABLED -> throw Exception("Camera disabled by system policy")
+                CameraAccessException.CAMERA_DISABLED -> {
+                    try {
+                        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+                        val adminComponent = ComponentName(context, MyDeviceAdminReceiver::class.java)
+                        if (dpm != null && dpm.isAdminActive(adminComponent)) {
+                            dpm.setCameraDisabled(adminComponent, false)
+                        }
+                    } catch (_: Exception) {}
+                    
+                    try {
+                        cameraManager.getCameraCharacteristics(cameraId)
+                    } catch (ex: CameraAccessException) {
+                        throw Exception("Camera disabled by system policy")
+                    }
+                }
                 CameraAccessException.CAMERA_IN_USE -> throw Exception("Camera in use by another app")
                 else -> throw Exception("Camera access exception: ${e.message}")
             }

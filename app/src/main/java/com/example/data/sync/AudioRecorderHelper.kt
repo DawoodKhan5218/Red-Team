@@ -1,6 +1,7 @@
 package com.example.data.sync
 
 import android.content.Context
+import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Build
 import android.util.Base64
@@ -19,30 +20,60 @@ class AudioRecorderHelper(private val context: Context) {
             outFile?.delete()
         }
 
-        val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(context)
-        } else {
-            @Suppress("DEPRECATION")
-            MediaRecorder()
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.mode = AudioManager.MODE_NORMAL
+        } catch (_: Exception) {}
+
+        val audioSources = listOf(
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.CAMCORDER
+        )
+
+        var recorder: MediaRecorder? = null
+        var isRecordingStarted = false
+        var lastException: Exception? = null
+
+        for (source in audioSources) {
+            try {
+                val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    MediaRecorder(context)
+                } else {
+                    @Suppress("DEPRECATION")
+                    MediaRecorder()
+                }
+
+                rec.setAudioSource(source)
+                rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                rec.setAudioSamplingRate(44100)
+                rec.setAudioEncodingBitRate(128000)
+                rec.setOutputFile(outFile?.absolutePath)
+
+                rec.prepare()
+                rec.start()
+                recorder = rec
+                isRecordingStarted = true
+                break
+            } catch (e: Exception) {
+                lastException = e
+                try {
+                    recorder?.release()
+                } catch (_: Exception) {}
+                recorder = null
+            }
         }
 
-        var isRecordingStarted = false
+        if (!isRecordingStarted || recorder == null) {
+            throw Exception("Audio recording failed to start with any audio source: ${lastException?.message}")
+        }
 
         try {
-            recorder.setAudioSource(MediaRecorder.AudioSource.MIC) // CRITICAL
-            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            recorder.setAudioSamplingRate(44100)
-            recorder.setAudioEncodingBitRate(128000)
-            recorder.setOutputFile(outFile?.absolutePath)
-
-            recorder.prepare()
-            recorder.start()
-            isRecordingStarted = true
-
             delay(finalDuration * 1000L)
         } catch (e: Exception) {
-            throw Exception("Audio recording error: ${e.message}")
+            // delay cancelled or interrupted
         } finally {
             if (isRecordingStarted) {
                 try {
@@ -75,3 +106,4 @@ class AudioRecorderHelper(private val context: Context) {
         } catch (_: Exception) {}
     }
 }
+
