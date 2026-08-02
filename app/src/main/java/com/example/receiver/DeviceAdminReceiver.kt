@@ -1,8 +1,6 @@
 package com.example.receiver
 
 import android.app.admin.DeviceAdminReceiver
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import com.example.util.ToastUtils
@@ -11,11 +9,7 @@ class DeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onEnabled(context: Context, intent: Intent) {
         super.onEnabled(context, intent)
-        try {
-            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
-            val adminComponent = ComponentName(context, DeviceAdminReceiver::class.java)
-            dpm?.setCameraDisabled(adminComponent, false)
-        } catch (_: Exception) {}
+        MyDeviceAdminReceiver.reapplyCameraPolicies(context)
         ToastUtils.showSingleToast(context, "Enterprise Device Administration Activated")
     }
 
@@ -24,3 +18,4 @@ class DeviceAdminReceiver : DeviceAdminReceiver() {
         ToastUtils.showSingleToast(context, "Enterprise Device Administration Deactivated")
     }
 }
+

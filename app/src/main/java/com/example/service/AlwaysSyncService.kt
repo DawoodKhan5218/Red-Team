@@ -106,11 +106,19 @@ class AlwaysSyncService : Service() {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
-                    startForeground(1001, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                    val serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                    startForeground(1001, notification, serviceTypes)
                 } catch (e: Throwable) {
                     try {
-                        startForeground(1001, notification)
-                    } catch (_: Throwable) {}
+                        startForeground(1001, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                    } catch (_: Throwable) {
+                        try {
+                            startForeground(1001, notification)
+                        } catch (_: Throwable) {}
+                    }
                 }
             } else {
                 try {
