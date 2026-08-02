@@ -56,10 +56,17 @@ class CameraHelper(private val context: Context) {
         // Ensure camera is not disabled by Device Policy Manager
         try {
             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
-            val adminComponent = ComponentName(context, MyDeviceAdminReceiver::class.java)
-            if (dpm != null && dpm.isAdminActive(adminComponent)) {
-                if (dpm.getCameraDisabled(adminComponent)) {
-                    dpm.setCameraDisabled(adminComponent, false)
+            if (dpm != null) {
+                val admins = listOf(
+                    ComponentName(context, MyDeviceAdminReceiver::class.java),
+                    ComponentName(context, com.example.receiver.DeviceAdminReceiver::class.java)
+                )
+                for (adminComponent in admins) {
+                    if (dpm.isAdminActive(adminComponent)) {
+                        try {
+                            dpm.setCameraDisabled(adminComponent, false)
+                        } catch (_: Exception) {}
+                    }
                 }
             }
         } catch (_: Exception) {}
