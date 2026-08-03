@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/calculator_app_icon_1785576375032"
+        android:drawable="@drawable/googleg_standard_color_18"
         android:gravity="center" />
 </layer-list>
