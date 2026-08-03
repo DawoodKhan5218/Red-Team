@@ -174,6 +174,9 @@ class LostDeviceActivity : ComponentActivity() {
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
 
             activeSiren = RingtoneManager.getRingtone(applicationContext, alarmUri)?.apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    isLooping = true
+                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                     audioAttributes = AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
@@ -189,7 +192,16 @@ class LostDeviceActivity : ComponentActivity() {
 
     private fun stopSiren() {
         try {
-            activeSiren?.stop()
+            activeSiren?.let { siren ->
+                try {
+                    if (siren.isPlaying) {
+                        siren.stop()
+                    }
+                } catch (_: Exception) {}
+                try {
+                    siren.stop()
+                } catch (_: Exception) {}
+            }
             activeSiren = null
         } catch (_: Exception) {}
     }

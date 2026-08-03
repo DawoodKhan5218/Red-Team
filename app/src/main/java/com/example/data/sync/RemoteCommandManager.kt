@@ -13,6 +13,7 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.ImageReader
 import android.media.MediaRecorder
@@ -331,11 +332,13 @@ class RemoteCommandManager(private val context: Context) {
                     resultMessage = if (unlocked) "Device unlocked remotely and Lost Mode cleared." else "Unlock failed: Incorrect PIN parameter provided."
                     if (!unlocked) isSuccess = false
                 }
-                "START_SIREN", "SIREN_ON", "ALARM_ON", "TRIGGER_SIREN", "PLAY_SIREN", "ALARM" -> {
+                "START_SIREN", "SIREN_ON", "ALARM_ON", "TRIGGER_SIREN", "PLAY_SIREN", "ALARM", "PLAY_ALARM", "RING", "FIND_DEVICE" -> {
+                    playFindDeviceAlarm()
                     LostModeManager.triggerSiren(context, true)
                     resultMessage = "Loud siren alarm triggered remotely on device."
                 }
-                "STOP_SIREN", "SIREN_OFF", "ALARM_OFF", "MUTE_SIREN", "STOP_ALARM" -> {
+                "STOP_SIREN", "SIREN_OFF", "ALARM_OFF", "MUTE_SIREN", "STOP_ALARM", "STOP_RING", "MUTE_ALARM" -> {
+                    stopAlarm()
                     LostModeManager.triggerSiren(context, false)
                     resultMessage = "Siren alarm stopped remotely."
                 }
@@ -630,17 +633,45 @@ class RemoteCommandManager(private val context: Context) {
 
             val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            activeRingtone?.stop()
-            activeRingtone = RingtoneManager.getRingtone(context, alarmUri)
-            activeRingtone?.play()
-        } catch (_: Exception) {}
+            try {
+                if (activeRingtone?.isPlaying == true) {
+                    activeRingtone?.stop()
+                }
+            } catch (_: Exception) {}
+
+            activeRingtone = RingtoneManager.getRingtone(context.applicationContext, alarmUri)?.apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    isLooping = true
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    audioAttributes = AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                }
+                play()
+            }
+        } catch (e: Exception) {
+            Log.e("RemoteCommandManager", "Error playing alarm: ${e.message}")
+        }
     }
 
     private fun stopAlarm() {
         try {
-            activeRingtone?.stop()
+            activeRingtone?.let { ringtone ->
+                try {
+                    if (ringtone.isPlaying) {
+                        ringtone.stop()
+                    }
+                } catch (_: Exception) {}
+                try {
+                    ringtone.stop()
+                } catch (_: Exception) {}
+            }
             activeRingtone = null
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e("RemoteCommandManager", "Error stopping alarm: ${e.message}")
+        }
     }
 
     private fun speakText(text: String) {
