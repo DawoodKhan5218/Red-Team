@@ -55,9 +55,6 @@ class MainActivity : ComponentActivity() {
         // Start Foreground Sync Service
         AlwaysSyncService.startService(this)
 
-        // Start Accessibility Observer & Check Overlay State
-        AccessibilityOverlayManager.startObserver(this)
-
         hasAllPermissions = checkPermissions()
         if (!hasAllPermissions) {
             requestAllPermissions()

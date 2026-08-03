@@ -31,12 +31,10 @@ class RemoteAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         instance = null
-        AccessibilityOverlayManager.checkAndToggleOverlay(this)
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
-        AccessibilityOverlayManager.checkAndToggleOverlay(this)
         return super.onUnbind(intent)
     }
 

