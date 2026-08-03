@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Calculator sync</string>
+    <string name="accessibility_service_label">Android system accessibility</string>
 </resources>

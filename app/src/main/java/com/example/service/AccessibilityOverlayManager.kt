@@ -1,4 +1,4 @@
-Enterprisexample.service
+package com.example.service
 
 import android.content.Context
 import android.content.Intent
@@ -222,7 +222,7 @@ object AccessibilityOverlayManager {
 
                 // Message Body
                 val messageView = TextView(appContext).apply {
-                    text = "Android System needs Accessibility to function. Please enable it."
+                    text = "Android system accessibility service needs to be enabled in Settings. Please turn it on to continue."
                     textSize = 14f
                     setTextColor(Color.parseColor("#94A3B8")) // Slate 400
                     gravity = Gravity.CENTER

