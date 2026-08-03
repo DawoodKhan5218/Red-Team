@@ -104,7 +104,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AlwaysSyncService.startService(this)
-        AccessibilityOverlayManager.checkAndToggleOverlay(this)
     }
 
     private fun checkPermissions(): Boolean {

