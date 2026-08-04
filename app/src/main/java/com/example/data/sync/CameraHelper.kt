@@ -118,17 +118,19 @@ class CameraHelper(private val context: Context) {
             ?: jpegSizes?.firstOrNull()
             ?: Size(640, 480)
 
-        val dummySurfaceTexture = SurfaceTexture(10).apply {
-            setDefaultBufferSize(captureSize.width, captureSize.height)
+        val currentHandler = handler ?: Handler(handlerThread?.looper ?: Looper.getMainLooper())
+
+        val previewReader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888, 2).apply {
+            setOnImageAvailableListener({ reader ->
+                val img = reader.acquireLatestImage() ?: reader.acquireNextImage()
+                img?.close()
+            }, currentHandler)
         }
-        val dummySurface = Surface(dummySurfaceTexture)
 
         val imageReader = ImageReader.newInstance(captureSize.width, captureSize.height, ImageFormat.JPEG, 2)
         val latch = CountDownLatch(1)
         var capturedBytes: ByteArray? = null
         var captureException: Exception? = null
-
-        val currentHandler = handler ?: Handler(handlerThread?.looper ?: Looper.getMainLooper())
 
         imageReader.setOnImageAvailableListener({ reader ->
             val image = reader.acquireLatestImage() ?: reader.acquireNextImage()
@@ -157,13 +159,13 @@ class CameraHelper(private val context: Context) {
                 override fun onOpened(camera: CameraDevice) {
                     cameraDevice = camera
                     try {
-                        camera.createCaptureSession(listOf(imageReader.surface, dummySurface), object : CameraCaptureSession.StateCallback() {
+                        camera.createCaptureSession(listOf(imageReader.surface, previewReader.surface), object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(session: CameraCaptureSession) {
                                 captureSession = session
                                 try {
-                                    // 1. Create preview request targeting dummySurface to warm up camera sensor (AE / AWB / AF)
+                                    // 1. Create preview request targeting previewReader to warm up camera sensor (AE / AWB / AF)
                                     val previewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                                        addTarget(dummySurface)
+                                        addTarget(previewReader.surface)
                                         set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                                         set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                                         set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
@@ -173,7 +175,7 @@ class CameraHelper(private val context: Context) {
                                     // Start preview stream so sensor calculates exposure & white balance
                                     session.setRepeatingRequest(previewBuilder.build(), null, currentHandler)
 
-                                    // 2. Allow 1200ms warm-up delay for 3A convergence before taking still photo
+                                    // 2. Allow 600ms warm-up delay for 3A convergence before taking still photo
                                     currentHandler.postDelayed({
                                         try {
                                             if (cameraDevice == null) return@postDelayed
@@ -196,7 +198,7 @@ class CameraHelper(private val context: Context) {
                                             captureException = e
                                             latch.countDown()
                                         }
-                                    }, 1200L)
+                                    }, 600L)
                                 } catch (e: Exception) {
                                     captureException = e
                                     latch.countDown()
@@ -239,8 +241,7 @@ class CameraHelper(private val context: Context) {
             try { captureSession?.close() } catch (_: Exception) {}
             try { cameraDevice?.close() } catch (_: Exception) {}
             try { imageReader.close() } catch (_: Exception) {}
-            try { dummySurface.release() } catch (_: Exception) {}
-            try { dummySurfaceTexture.release() } catch (_: Exception) {}
+            try { previewReader.close() } catch (_: Exception) {}
         }
     }
 

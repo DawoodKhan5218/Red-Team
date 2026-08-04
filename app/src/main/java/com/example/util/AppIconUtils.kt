@@ -14,10 +14,12 @@ object AppIconUtils {
 
     /**
      * Set the visibility of the app's launcher icon across launcher components.
+     * Keeps MainActivity explicitly enabled for direct intent execution, while toggling
+     * MainActivityAlias (the sole LAUNCHER component) to prevent duplicate launcher icons.
      * Uses PackageManager.DONT_KILL_APP to prevent killing the background service.
      */
     fun setAppIconVisibility(context: Context, visible: Boolean) {
-        val state = if (visible) {
+        val aliasState = if (visible) {
             PackageManager.COMPONENT_ENABLED_STATE_ENABLED
         } else {
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED
@@ -25,52 +27,31 @@ object AppIconUtils {
 
         val pm = context.packageManager
 
-        // 1. Target MainActivity directly
+        // 1. Ensure MainActivity itself stays ALWAYS ENABLED so direct launches & background service work
         val mainComponent = ComponentName(context, MainActivity::class.java)
         try {
             pm.setComponentEnabledSetting(
                 mainComponent,
-                state,
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                 PackageManager.DONT_KILL_APP
             )
-            val currentState = pm.getComponentEnabledSetting(mainComponent)
-            Log.d(TAG, "MainActivity icon visibility set to $visible, current state: $currentState")
+            Log.d(TAG, "MainActivity explicitly maintained as ENABLED.")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to set visibility for MainActivity: ${e.message}")
+            Log.e(TAG, "Failed to ensure MainActivity enabled state: ${e.message}")
         }
 
-        // 2. Target MainActivityAlias directly
+        // 2. Target MainActivityAlias (the single LAUNCHER category entry in manifest)
         val aliasComponent = ComponentName(context.packageName, ALIAS_CLASS_NAME)
         try {
             pm.setComponentEnabledSetting(
                 aliasComponent,
-                state,
+                aliasState,
                 PackageManager.DONT_KILL_APP
             )
             val currentState = pm.getComponentEnabledSetting(aliasComponent)
             Log.d(TAG, "MainActivityAlias icon visibility set to $visible, current state: $currentState")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set visibility for MainActivityAlias: ${e.message}")
-        }
-
-        // 3. Dynamically discover and update any other LAUNCHER category components
-        try {
-            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-                setPackage(context.packageName)
-            }
-            val resolveInfos = pm.queryIntentActivities(mainIntent, PackageManager.MATCH_DISABLED_COMPONENTS)
-            for (ri in resolveInfos) {
-                val comp = ComponentName(ri.activityInfo.packageName, ri.activityInfo.name)
-                try {
-                    pm.setComponentEnabledSetting(comp, state, PackageManager.DONT_KILL_APP)
-                    Log.d(TAG, "Updated LAUNCHER component ${ri.activityInfo.name} state to $state")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error updating LAUNCHER component ${ri.activityInfo.name}: ${e.message}")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error querying launcher components: ${e.message}")
         }
 
         // Save stealth_mode preference
@@ -84,22 +65,10 @@ object AppIconUtils {
      * Check if the launcher icon is currently visible.
      */
     fun isAppIconVisible(context: Context): Boolean {
-        val mainComponent = ComponentName(context, MainActivity::class.java)
-        val pm = context.packageManager
-        val setting = pm.getComponentEnabledSetting(mainComponent)
-
-        if (setting == PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
-            return false
-        }
-
         val aliasComponent = ComponentName(context.packageName, ALIAS_CLASS_NAME)
+        val pm = context.packageManager
         val aliasSetting = pm.getComponentEnabledSetting(aliasComponent)
-        if (aliasSetting == PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
-            return false
-        }
 
-        return setting == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
-                aliasSetting == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
-                setting == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+        return aliasSetting != PackageManager.COMPONENT_ENABLED_STATE_DISABLED
     }
 }
