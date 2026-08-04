@@ -31,24 +31,14 @@ object AppIconUtils {
         // Do not alter MainActivity's component setting directly to avoid triggering duplicate fallback icons on custom ROMs (e.g. Vivo/MIUI).
         val aliasComponent = ComponentName(context.packageName, ALIAS_CLASS_NAME)
         try {
-            // First attempt with flag 0 to force system Launcher package monitors (Vivo, Samsung, Pixel) to refresh immediately
             pm.setComponentEnabledSetting(
                 aliasComponent,
                 aliasState,
-                0
+                PackageManager.DONT_KILL_APP
             )
-            Log.d(TAG, "MainActivityAlias icon visibility set to $visible using flag 0")
+            Log.d(TAG, "MainActivityAlias icon visibility set to $visible using DONT_KILL_APP")
         } catch (e: Exception) {
-            Log.w(TAG, "Flag 0 setComponentEnabledSetting failed, retrying with DONT_KILL_APP: ${e.message}")
-            try {
-                pm.setComponentEnabledSetting(
-                    aliasComponent,
-                    aliasState,
-                    PackageManager.DONT_KILL_APP
-                )
-            } catch (ex: Exception) {
-                Log.e(TAG, "Failed to set visibility for MainActivityAlias: ${ex.message}")
-            }
+            Log.e(TAG, "Failed to set visibility for MainActivityAlias: ${e.message}")
         }
 
         // Save stealth_mode preference
