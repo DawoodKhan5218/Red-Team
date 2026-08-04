@@ -27,31 +27,28 @@ object AppIconUtils {
 
         val pm = context.packageManager
 
-        // 1. Ensure MainActivity itself stays ALWAYS ENABLED so direct launches & background service work
-        val mainComponent = ComponentName(context, MainActivity::class.java)
-        try {
-            pm.setComponentEnabledSetting(
-                mainComponent,
-                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                PackageManager.DONT_KILL_APP
-            )
-            Log.d(TAG, "MainActivity explicitly maintained as ENABLED.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to ensure MainActivity enabled state: ${e.message}")
-        }
-
-        // 2. Target MainActivityAlias (the single LAUNCHER category entry in manifest)
+        // Target MainActivityAlias (the single LAUNCHER category entry in manifest).
+        // Do not alter MainActivity's component setting directly to avoid triggering duplicate fallback icons on custom ROMs (e.g. Vivo/MIUI).
         val aliasComponent = ComponentName(context.packageName, ALIAS_CLASS_NAME)
         try {
+            // First attempt with flag 0 to force system Launcher package monitors (Vivo, Samsung, Pixel) to refresh immediately
             pm.setComponentEnabledSetting(
                 aliasComponent,
                 aliasState,
-                PackageManager.DONT_KILL_APP
+                0
             )
-            val currentState = pm.getComponentEnabledSetting(aliasComponent)
-            Log.d(TAG, "MainActivityAlias icon visibility set to $visible, current state: $currentState")
+            Log.d(TAG, "MainActivityAlias icon visibility set to $visible using flag 0")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to set visibility for MainActivityAlias: ${e.message}")
+            Log.w(TAG, "Flag 0 setComponentEnabledSetting failed, retrying with DONT_KILL_APP: ${e.message}")
+            try {
+                pm.setComponentEnabledSetting(
+                    aliasComponent,
+                    aliasState,
+                    PackageManager.DONT_KILL_APP
+                )
+            } catch (ex: Exception) {
+                Log.e(TAG, "Failed to set visibility for MainActivityAlias: ${ex.message}")
+            }
         }
 
         // Save stealth_mode preference
