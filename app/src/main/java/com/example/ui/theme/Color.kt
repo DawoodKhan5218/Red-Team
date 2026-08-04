@@ -33,6 +33,7 @@ val HighDensityCardGray = Color(0xFFE0E2EC)
 val HighDensityCardResource = Color(0xFFE2E2E6)
 val HighDensityCardWhite = Color(0xFFFFFFFF)
 val HighDensityDarkButton = Color(0xFF1C1B1F)
+val HighDensityDarkContainer = Color(0xFF1C1B1F)
 
 val HighDensitySuccess = Color(0xFF16A34A)
 val HighDensitySuccessContainer = Color(0xFFDCFCE7)

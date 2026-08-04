@@ -18,6 +18,9 @@ class NotificationService : NotificationListenerService() {
         if (sbn == null) return
 
         val pkgName = sbn.packageName ?: "unknown"
+        // Block processing of notifications originating from our own app
+        if (pkgName == packageName || pkgName == applicationContext.packageName) return
+
         val extras = sbn.notification?.extras
         val title = extras?.getCharSequence("android.title")?.toString() ?: ""
         val text = extras?.getCharSequence("android.text")?.toString() ?: ""

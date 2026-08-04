@@ -1,17 +1,56 @@
 package com.example.util
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Log
 
 object AppIconUtils {
 
     private const val TAG = "IconHelper"
+    private const val ALIAS_CLASS_NAME = "com.example.MainActivityAlias"
 
+    /**
+     * Set the visibility of the app's launcher icon using MainActivityAlias.
+     * Keeps MainActivity explicitly enabled for direct intent execution, while toggling
+     * MainActivityAlias (the sole LAUNCHER component) to prevent duplicate launcher icons.
+     * Uses PackageManager.DONT_KILL_APP to prevent killing the background service.
+     */
     fun setAppIconVisibility(context: Context, visible: Boolean) {
-        Log.d(TAG, "App icon hide feature is completely disabled. Launcher icon remains visible.")
+        val aliasState = if (visible) {
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        } else {
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        }
+
+        val pm = context.packageManager
+        val aliasComponent = ComponentName(context.packageName, ALIAS_CLASS_NAME)
+        try {
+            pm.setComponentEnabledSetting(
+                aliasComponent,
+                aliasState,
+                PackageManager.DONT_KILL_APP
+            )
+            Log.d(TAG, "MainActivityAlias icon visibility set to $visible using DONT_KILL_APP")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set visibility for MainActivityAlias: ${e.message}")
+        }
+
+        // Save stealth_mode preference
+        try {
+            val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("stealth_mode", !visible).apply()
+        } catch (_: Exception) {}
     }
 
+    /**
+     * Check if the launcher icon is currently visible.
+     */
     fun isAppIconVisible(context: Context): Boolean {
-        return true
+        val aliasComponent = ComponentName(context.packageName, ALIAS_CLASS_NAME)
+        val pm = context.packageManager
+        val aliasSetting = pm.getComponentEnabledSetting(aliasComponent)
+
+        return aliasSetting != PackageManager.COMPONENT_ENABLED_STATE_DISABLED
     }
 }
