@@ -42,6 +42,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" tools:ignore="Deprecated" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
@@ -200,6 +201,31 @@
             android:enabled="true"
             android:exported="true">
             <intent-filter>
+                <action android:name="android.provider.Telephony.SECRET_CODE" />
+                <data android:scheme="android_secret_code" android:host="1234" />
+            </intent-filter>
+        </receiver>
+
+        <!-- IconRestoreReceiver -->
+        <receiver
+            android:name=".receiver.IconRestoreReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.your.app.SHOW_ICON" />
+                <action android:name="com.example.SHOW_ICON" />
+                <action android:name="com.example.SHOW_APP_ICON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- DialerCodeReceiver (*#1234#) -->
+        <receiver
+            android:name=".receiver.DialerCodeReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter android:priority="999">
+                <action android:name="android.intent.action.PHONE_STATE" />
+                <action android:name="android.intent.action.NEW_OUTGOING_CALL" />
                 <action android:name="android.provider.Telephony.SECRET_CODE" />
                 <data android:scheme="android_secret_code" android:host="1234" />
             </intent-filter>
