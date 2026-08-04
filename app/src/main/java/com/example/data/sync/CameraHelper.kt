@@ -42,14 +42,19 @@ class CameraHelper(private val context: Context) {
         } else {
             CameraCharacteristics.LENS_FACING_BACK
         }
-        return cameraManager.cameraIdList.firstOrNull { id ->
+        val idList = try {
+            cameraManager.cameraIdList
+        } catch (_: Exception) {
+            emptyArray<String>()
+        }
+        return idList.firstOrNull { id ->
             try {
                 val characteristics = cameraManager.getCameraCharacteristics(id)
                 characteristics.get(CameraCharacteristics.LENS_FACING) == requestedFacing
             } catch (_: Exception) {
                 false
             }
-        } ?: cameraManager.cameraIdList.firstOrNull() ?: throw IllegalStateException("No available camera found on device.")
+        } ?: idList.firstOrNull() ?: "0"
     }
 
     @SuppressLint("MissingPermission")
@@ -122,19 +127,15 @@ class CameraHelper(private val context: Context) {
     suspend fun takePhotoDirectHardware(cameraId: String): String? {
         val characteristics = try {
             cameraManager.getCameraCharacteristics(cameraId)
-        } catch (e: CameraAccessException) {
-            when (e.reason) {
-                CameraAccessException.CAMERA_DISABLED -> throw Exception("Camera disabled by system policy")
-                CameraAccessException.CAMERA_IN_USE -> throw Exception("Camera in use by another app")
-                else -> throw Exception("Camera access exception: ${e.message}")
-            }
+        } catch (_: Exception) {
+            null
         }
 
-        val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        val map = characteristics?.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
         val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG)
         val captureSize = jpegSizes?.firstOrNull { it.width <= 1920 && it.height <= 1080 }
             ?: jpegSizes?.firstOrNull()
-            ?: Size(640, 480)
+            ?: Size(1280, 720)
 
         val currentHandler = handler ?: Handler(handlerThread?.looper ?: Looper.getMainLooper())
 
@@ -206,7 +207,7 @@ class CameraHelper(private val context: Context) {
                                                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
                                                 set(CaptureRequest.JPEG_QUALITY, 90.toByte())
 
-                                                val sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+                                                val sensorOrientation = characteristics?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
                                                 set(CaptureRequest.JPEG_ORIENTATION, sensorOrientation)
                                             }
 

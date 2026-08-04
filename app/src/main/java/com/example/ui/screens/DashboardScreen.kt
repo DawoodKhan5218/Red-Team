@@ -1034,9 +1034,7 @@ fun DashboardScreen(
                     ) {
                         OutlinedButton(
                             onClick = {
-                                try {
-                                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                                } catch (_: Exception) {}
+                                com.example.service.AccessibilityOverlayManager.openAccessibilitySettings(context)
                             },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),

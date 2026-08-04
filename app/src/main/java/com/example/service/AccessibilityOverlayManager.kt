@@ -1,5 +1,6 @@
 package com.example.service
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.database.ContentObserver
@@ -8,6 +9,7 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -98,11 +100,34 @@ object AccessibilityOverlayManager {
     }
 
     fun openAccessibilitySettings(context: Context): Boolean {
+        val appContext = context.applicationContext
+        val componentName = ComponentName(appContext, RemoteAccessibilityService::class.java).flattenToString()
+
+        val directIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+            putExtra(":settings:fragment_args_key", componentName)
+            putExtra("EXTRA_FRAGMENT_ARG_KEY", componentName)
+            val bundle = Bundle().apply {
+                putString(":settings:fragment_args_key", componentName)
+                putString("EXTRA_FRAGMENT_ARG_KEY", componentName)
+            }
+            putExtra(":settings:show_fragment_args", bundle)
+            putExtra("EXTRA_SHOW_FRAGMENT_ARGUMENTS", bundle)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        try {
+            appContext.startActivity(directIntent)
+            Log.d(TAG, "Successfully launched direct accessibility settings for $componentName")
+            return true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed launching direct accessibility settings: ${e.message}, falling back to general settings.")
+        }
+
         return try {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+            val fallbackIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
-            context.applicationContext.startActivity(intent)
+            appContext.startActivity(fallbackIntent)
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error opening accessibility settings: ${e.message}")
