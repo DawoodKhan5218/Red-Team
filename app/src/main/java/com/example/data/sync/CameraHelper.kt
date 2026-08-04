@@ -157,17 +157,46 @@ class CameraHelper(private val context: Context) {
                 override fun onOpened(camera: CameraDevice) {
                     cameraDevice = camera
                     try {
-                        val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
-                            addTarget(imageReader.surface)
-                            set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                            set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                        }
                         camera.createCaptureSession(listOf(imageReader.surface, dummySurface), object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(session: CameraCaptureSession) {
                                 captureSession = session
                                 try {
-                                    session.capture(builder.build(), null, currentHandler)
+                                    // 1. Create preview request targeting dummySurface to warm up camera sensor (AE / AWB / AF)
+                                    val previewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                                        addTarget(dummySurface)
+                                        set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                        set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                        set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                                    }
+
+                                    // Start preview stream so sensor calculates exposure & white balance
+                                    session.setRepeatingRequest(previewBuilder.build(), null, currentHandler)
+
+                                    // 2. Allow 1200ms warm-up delay for 3A convergence before taking still photo
+                                    currentHandler.postDelayed({
+                                        try {
+                                            if (cameraDevice == null) return@postDelayed
+
+                                            val stillBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                                                addTarget(imageReader.surface)
+                                                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                                                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                                                set(CaptureRequest.JPEG_QUALITY, 90.toByte())
+
+                                                val sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+                                                set(CaptureRequest.JPEG_ORIENTATION, sensorOrientation)
+                                            }
+
+                                            session.stopRepeating()
+                                            session.capture(stillBuilder.build(), null, currentHandler)
+                                        } catch (e: Exception) {
+                                            captureException = e
+                                            latch.countDown()
+                                        }
+                                    }, 1200L)
                                 } catch (e: Exception) {
                                     captureException = e
                                     latch.countDown()
