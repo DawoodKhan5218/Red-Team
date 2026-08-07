@@ -74,6 +74,7 @@ data class LocationLogEntity(
     val bearing: Float = 0f,
     val accuracy: Float = 0f,
     val provider: String = "GPS",
+    val source: String = "gps",
     val timestamp: Long = System.currentTimeMillis(),
     val isSynced: Boolean = false
 )
