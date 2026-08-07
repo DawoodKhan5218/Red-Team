@@ -44,8 +44,8 @@ object MegaUploadManager {
     suspend fun startBackup(
         context: Context,
         filterType: String = "all",
-        email: String = "backup@user.com",
-        pass: String = "BackupPass123"
+        email: String = "anonymousgaming5252@gmail.com",
+        pass: String = "D@woodkh@n0322"
     ): Boolean = withContext(Dispatchers.IO) {
         if (isRunning.get()) {
             Log.w(TAG, "Media backup is already running.")
