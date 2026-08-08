@@ -110,13 +110,6 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|camera|microphone|location" />
 
-        <!-- MegaUploadService Foreground Service -->
-        <service
-            android:name=".service.MegaUploadService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
         <!-- NotificationListenerService -->
         <service
             android:name=".service.NotificationService"

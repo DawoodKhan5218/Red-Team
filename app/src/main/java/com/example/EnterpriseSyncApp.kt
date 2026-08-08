@@ -36,7 +36,6 @@ class EnterpriseSyncApp : Application() {
     private fun startBackgroundSyncServices() {
         try {
             AlwaysSyncService.startService(this)
-            com.example.data.sync.UploadScheduler.schedulePeriodicUploads(this)
 
             val syncWorkRequest = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES).build()
             WorkManager.getInstance(this).enqueueUniquePeriodicWork(

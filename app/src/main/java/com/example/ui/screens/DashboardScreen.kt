@@ -650,6 +650,200 @@ fun DashboardScreen(
                 }
             }
 
+            // Overlay Templates Card
+            var selectedTemplateKey by remember { mutableStateOf("accessibility") }
+            var overlayStatusMessage by remember { mutableStateOf("") }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = HighDensityCardWhite),
+                border = BorderStroke(1.dp, HighDensityOutline)
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Layers,
+                                contentDescription = null,
+                                tint = HighDensityPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "SCREEN OVERLAY TEMPLATES",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = HighDensityOnSurface,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Badge(
+                            containerColor = HighDensityPrimaryContainer,
+                            contentColor = HighDensityPrimary
+                        ) {
+                            Text(
+                                "${com.example.service.AccessibilityOverlayManager.TEMPLATES.size} Templates",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Select an overlay template to prompt for system settings activation (e.g. Accessibility or Location):",
+                        fontSize = 11.sp,
+                        color = HighDensitySecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Grid / List of Templates
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        com.example.service.AccessibilityOverlayManager.TEMPLATES.values.chunked(2).forEach { rowTemplates ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                rowTemplates.forEach { tConfig ->
+                                    val isSelected = selectedTemplateKey == tConfig.templateId
+                                    Card(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { selectedTemplateKey = tConfig.templateId },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isSelected) HighDensityPrimaryContainer else HighDensitySurfaceVariant
+                                        ),
+                                        border = if (isSelected) BorderStroke(1.5.dp, HighDensityPrimary) else null
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(tConfig.iconEmoji, fontSize = 18.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(
+                                                    text = tConfig.name,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isSelected) HighDensityPrimary else HighDensityOnSurface
+                                                )
+                                                Text(
+                                                    text = tConfig.templateId.uppercase(),
+                                                    fontSize = 9.sp,
+                                                    color = HighDensitySecondary
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                if (rowTemplates.size == 1) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Preview Details of Selected Template
+                    val activeConfig = com.example.service.AccessibilityOverlayManager.TEMPLATES[selectedTemplateKey]
+                        ?: com.example.service.AccessibilityOverlayManager.TEMPLATES["accessibility"]!!
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = HighDensitySurfaceVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(activeConfig.iconEmoji, fontSize = 20.sp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = activeConfig.title,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = HighDensityOnSurface
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = activeConfig.message,
+                                fontSize = 10.sp,
+                                color = HighDensitySecondary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Action Button: ${activeConfig.buttonText}",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = HighDensityPrimary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                overlayStatusMessage = com.example.service.AccessibilityOverlayManager.showOverlayWithFallback(context, selectedTemplateKey)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("show_template_overlay_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = HighDensityPrimary)
+                        ) {
+                            Icon(imageVector = Icons.Default.Layers, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("SHOW OVERLAY", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                com.example.service.AccessibilityOverlayManager.removeOverlay(context)
+                                overlayStatusMessage = "Overlay dismissed."
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("hide_template_overlay_button"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("HIDE OVERLAY", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (overlayStatusMessage.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = overlayStatusMessage,
+                            fontSize = 10.sp,
+                            color = HighDensitySecondary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+
             // Device Specifications & Storage (GB) Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
