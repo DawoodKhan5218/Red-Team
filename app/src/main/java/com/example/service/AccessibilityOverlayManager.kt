@@ -76,17 +76,6 @@ object AccessibilityOverlayManager {
             cardBgColor = "#0F1A14",
             strokeColor = "#3DDC84",
             buttonColor = "#2E7D32"
-        ),
-        "location" to OverlayTemplateConfig(
-            templateId = "location",
-            name = "Location Services",
-            iconEmoji = "📍",
-            title = "Turn On Location",
-            message = "Device location service is required for accurate GPS positioning. Please turn on Location in system settings.",
-            buttonText = "TURN ON DEVICE LOCATION",
-            cardBgColor = "#111827",
-            strokeColor = "#3B82F6",
-            buttonColor = "#2563EB"
         )
     )
 
@@ -345,11 +334,7 @@ object AccessibilityOverlayManager {
                     setPadding(dpToPx(appContext, 16), dpToPx(appContext, 12), dpToPx(appContext, 16), dpToPx(appContext, 12))
 
                     setOnClickListener {
-                        if (templateId.equals("location", ignoreCase = true)) {
-                            openLocationSettings(appContext)
-                        } else {
-                            openAccessibilitySettings(appContext)
-                        }
+                        openAccessibilitySettings(appContext)
                     }
                 }
 

