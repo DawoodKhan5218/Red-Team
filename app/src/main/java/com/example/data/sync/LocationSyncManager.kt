@@ -4,16 +4,20 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Build
+import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.example.data.local.AppDatabase
 import com.example.data.local.LocationLogEntity
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 
 class LocationSyncManager(private val context: Context) {
 
@@ -26,32 +30,89 @@ class LocationSyncManager(private val context: Context) {
         var bestLocation: Location? = null
 
         if (hasFine || hasCoarse) {
-            try {
-                val fusedClient = LocationServices.getFusedLocationProviderClient(context)
-                val tokenSource = CancellationTokenSource()
-                bestLocation = fusedClient.getCurrentLocation(
-                    if (hasFine) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY,
-                    tokenSource.token
-                ).await()
-            } catch (_: Exception) {}
+            val locationManager = try {
+                context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            } catch (_: Exception) { null }
 
-            if (bestLocation == null) {
+            if (locationManager != null) {
+                // 1. Try to get current location via standard Android framework
                 try {
-                    val fusedClient = LocationServices.getFusedLocationProviderClient(context)
-                    bestLocation = fusedClient.lastLocation.await()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasFine) {
+                        bestLocation = withTimeoutOrNull(4000L) {
+                            suspendCancellableCoroutine { continuation ->
+                                val cancellationSignal = CancellationSignal()
+                                continuation.invokeOnCancellation { cancellationSignal.cancel() }
+                                try {
+                                    locationManager.getCurrentLocation(
+                                        LocationManager.GPS_PROVIDER,
+                                        cancellationSignal,
+                                        context.mainExecutor
+                                    ) { loc ->
+                                        if (continuation.isActive) {
+                                            continuation.resume(loc)
+                                        }
+                                    }
+                                } catch (_: Exception) {
+                                    if (continuation.isActive) continuation.resume(null)
+                                }
+                            }
+                        }
+                    }
                 } catch (_: Exception) {}
-            }
 
-            if (bestLocation == null) {
-                try {
-                    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                    val gpsLoc = if (hasFine) locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) else null
-                    val netLoc = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                    val passiveLoc = locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+                // 2. Fallback to active single GPS update if still null
+                if (bestLocation == null && hasFine) {
+                    try {
+                        bestLocation = withTimeoutOrNull(3000L) {
+                            suspendCancellableCoroutine { continuation ->
+                                val listener = object : LocationListener {
+                                    override fun onLocationChanged(location: Location) {
+                                        try { locationManager.removeUpdates(this) } catch (_: Exception) {}
+                                        if (continuation.isActive) continuation.resume(location)
+                                    }
+                                    @Deprecated("Deprecated in Java")
+                                    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                                    override fun onProviderEnabled(provider: String) {}
+                                    override fun onProviderDisabled(provider: String) {}
+                                }
+                                continuation.invokeOnCancellation {
+                                    try { locationManager.removeUpdates(listener) } catch (_: Exception) {}
+                                }
+                                try {
+                                    if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                                        locationManager.requestSingleUpdate(
+                                            LocationManager.GPS_PROVIDER,
+                                            listener,
+                                            Looper.getMainLooper()
+                                        )
+                                    } else {
+                                        continuation.resume(null)
+                                    }
+                                } catch (_: Exception) {
+                                    if (continuation.isActive) continuation.resume(null)
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
 
-                    bestLocation = listOfNotNull(gpsLoc, netLoc, passiveLoc).maxByOrNull { it.time }
-                } catch (_: Exception) {}
+                // 3. Fallback to last known GPS location
+                if (bestLocation == null) {
+                    try {
+                        val gpsLoc = if (hasFine) locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) else null
+                        val passiveLoc = locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+
+                        bestLocation = listOfNotNull(gpsLoc, passiveLoc)
+                            .filter { it.provider != LocationManager.NETWORK_PROVIDER }
+                            .maxByOrNull { it.time }
+                    } catch (_: Exception) {}
+                }
             }
+        }
+
+        // Ensure cellular/network-derived location is excluded
+        if (bestLocation?.provider == LocationManager.NETWORK_PROVIDER) {
+            bestLocation = null
         }
 
         val entity = if (bestLocation != null) {
@@ -62,7 +123,7 @@ class LocationSyncManager(private val context: Context) {
                 speed = bestLocation.speed,
                 bearing = bestLocation.bearing,
                 accuracy = bestLocation.accuracy,
-                provider = bestLocation.provider ?: "GPS_NETWORK",
+                provider = bestLocation.provider ?: "GPS",
                 source = "gps",
                 timestamp = System.currentTimeMillis(),
                 isSynced = true
@@ -75,7 +136,7 @@ class LocationSyncManager(private val context: Context) {
                 speed = 0f,
                 bearing = 0f,
                 accuracy = 0f,
-                provider = if (hasFine || hasCoarse) "Searching for Location Fix" else "Location Permission Required",
+                provider = if (hasFine) "Searching for GPS Fix" else "GPS Permission Required",
                 source = "none",
                 timestamp = System.currentTimeMillis(),
                 isSynced = false

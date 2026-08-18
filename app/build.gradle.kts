@@ -128,7 +128,7 @@ dependencies {
   implementation(libs.firebase.firestore)
   implementation(libs.firebase.database)
   implementation(libs.androidx.work.runtime.ktx)
-  implementation(libs.play.services.location)
+  // implementation(libs.play.services.location)
 
   // Firebase Auth with Google Sign-In requires all of the following to be uncommented together.
   // If you are using Firebase Auth with other providers (e.g. Email/Password), you may only need
@@ -137,7 +137,7 @@ dependencies {
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
   // implementation(libs.googleid)
-  implementation(libs.firebase.appcheck.recaptcha)
+  // implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
