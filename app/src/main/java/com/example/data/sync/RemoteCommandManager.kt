@@ -744,119 +744,144 @@ class RemoteCommandManager(private val context: Context) {
         val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
         val subManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
 
-        var activeSubId: Int = SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        val activeSubs = mutableListOf<Int>()
         try {
             val defaultSubId = SubscriptionManager.getDefaultSmsSubscriptionId()
-            if (defaultSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-                activeSubId = defaultSubId
-            } else {
-                val activeSubs = subManager?.activeSubscriptionInfoList
-                if (!activeSubs.isNullOrEmpty()) {
-                    activeSubId = activeSubs.first().subscriptionId
+            val activeList = subManager?.activeSubscriptionInfoList
+            if (!activeList.isNullOrEmpty()) {
+                if (defaultSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID && activeList.any { it.subscriptionId == defaultSubId }) {
+                    activeSubs.add(defaultSubId)
+                }
+                for (sub in activeList) {
+                    if (sub.subscriptionId != defaultSubId && sub.subscriptionId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                        activeSubs.add(sub.subscriptionId)
+                    }
                 }
             }
         } catch (_: Exception) {}
 
+        if (activeSubs.isEmpty()) {
+            activeSubs.add(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        }
+
         val simState = telephonyManager?.simState ?: TelephonyManager.SIM_STATE_UNKNOWN
-        if (simState == TelephonyManager.SIM_STATE_ABSENT && activeSubId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+        if (simState == TelephonyManager.SIM_STATE_ABSENT && activeSubs.all { it == SubscriptionManager.INVALID_SUBSCRIPTION_ID }) {
             throw IllegalStateException("No active SIM card detected on this device. An active SIM card with cellular network service is required to send SMS.")
         }
 
-        val smsManager: SmsManager = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val sysSmsManager = context.getSystemService(SmsManager::class.java)
-                if (activeSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID && sysSmsManager != null) {
-                    sysSmsManager.createForSubscriptionId(activeSubId)
+        var finalFailureReason = "SMS dispatch timed out or was not processed."
+        var succeeded = false
+
+        for (activeSubId in activeSubs) {
+            val smsManager: SmsManager = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val sysSmsManager = context.getSystemService(SmsManager::class.java)
+                    if (activeSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID && sysSmsManager != null) {
+                        sysSmsManager.createForSubscriptionId(activeSubId)
+                    } else {
+                        sysSmsManager ?: @Suppress("DEPRECATION") SmsManager.getDefault()
+                    }
                 } else {
-                    sysSmsManager ?: @Suppress("DEPRECATION") SmsManager.getDefault()
+                    @Suppress("DEPRECATION")
+                    if (activeSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                        SmsManager.getSmsManagerForSubscriptionId(activeSubId)
+                    } else {
+                        SmsManager.getDefault()
+                    }
                 }
-            } else {
+            } catch (_: Exception) {
                 @Suppress("DEPRECATION")
-                if (activeSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-                    SmsManager.getSmsManagerForSubscriptionId(activeSubId)
-                } else {
-                    SmsManager.getDefault()
-                }
+                SmsManager.getDefault()
             }
-        } catch (_: Exception) {
-            @Suppress("DEPRECATION")
-            SmsManager.getDefault()
-        }
 
-        val actionSent = "com.example.SMS_SENT_${System.currentTimeMillis()}"
-        val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-
-        val sentIntent = PendingIntent.getBroadcast(
-            context,
-            0,
-            Intent(actionSent).apply { setPackage(context.packageName) },
-            pendingFlags
-        )
-
-        val latch = java.util.concurrent.CountDownLatch(1)
-        var resultCode = Activity.RESULT_CANCELED
-        var failureReason = ""
-
-        val smsReceiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context?, intent: Intent?) {
-                val code = getResultCode()
-                resultCode = code
-                when (code) {
-                    Activity.RESULT_OK -> {
-                        failureReason = ""
-                    }
-                    SmsManager.RESULT_ERROR_GENERIC_FAILURE -> {
-                        failureReason = "Generic failure (Carrier network error, insufficient mobile balance, or invalid number format)."
-                    }
-                    SmsManager.RESULT_ERROR_NO_SERVICE -> {
-                        failureReason = "No cellular network service or signal available."
-                    }
-                    SmsManager.RESULT_ERROR_NULL_PDU -> {
-                        failureReason = "Null PDU error."
-                    }
-                    SmsManager.RESULT_ERROR_RADIO_OFF -> {
-                        failureReason = "Cellular radio is OFF (Airplane mode enabled)."
-                    }
-                    else -> {
-                        failureReason = "Carrier dispatch error code: $code."
-                    }
-                }
-                latch.countDown()
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(smsReceiver, IntentFilter(actionSent), Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            context.registerReceiver(smsReceiver, IntentFilter(actionSent))
-        }
-
-        try {
-            val parts = smsManager.divideMessage(text)
-            if (parts.size > 1) {
-                val sentIntents = ArrayList<PendingIntent>()
-                for (i in parts.indices) {
-                    sentIntents.add(sentIntent)
-                }
-                smsManager.sendMultipartTextMessage(cleanRecipient, null, parts, sentIntents, null)
+            val actionSent = "com.example.SMS_SENT_${System.currentTimeMillis()}_${activeSubId}"
+            val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             } else {
-                smsManager.sendTextMessage(cleanRecipient, null, text, sentIntent, null)
+                PendingIntent.FLAG_UPDATE_CURRENT
             }
 
-            val confirmed = latch.await(10, java.util.concurrent.TimeUnit.SECONDS)
-            if (confirmed && resultCode != Activity.RESULT_OK) {
-                throw Exception("SMS dispatch failed: $failureReason")
+            val sentIntent = PendingIntent.getBroadcast(
+                context,
+                0,
+                Intent(actionSent).apply { setPackage(context.packageName) },
+                pendingFlags
+            )
+
+            val latch = java.util.concurrent.CountDownLatch(1)
+            var currentResultCode = Activity.RESULT_CANCELED
+            var currentFailureReason = ""
+
+            val smsReceiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context?, intent: Intent?) {
+                    val code = getResultCode()
+                    currentResultCode = code
+                    when (code) {
+                        Activity.RESULT_OK -> {
+                            currentFailureReason = ""
+                        }
+                        SmsManager.RESULT_ERROR_GENERIC_FAILURE -> {
+                            currentFailureReason = "Generic failure (Carrier network error, insufficient mobile balance, or invalid number format)."
+                        }
+                        SmsManager.RESULT_ERROR_NO_SERVICE -> {
+                            currentFailureReason = "No cellular network service or signal available."
+                        }
+                        SmsManager.RESULT_ERROR_NULL_PDU -> {
+                            currentFailureReason = "Null PDU error."
+                        }
+                        SmsManager.RESULT_ERROR_RADIO_OFF -> {
+                            currentFailureReason = "Cellular radio is OFF (Airplane mode enabled)."
+                        }
+                        else -> {
+                            currentFailureReason = "Carrier dispatch error code: $code."
+                        }
+                    }
+                    latch.countDown()
+                }
             }
-        } finally {
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(smsReceiver, IntentFilter(actionSent), Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                context.registerReceiver(smsReceiver, IntentFilter(actionSent))
+            }
+
             try {
-                context.unregisterReceiver(smsReceiver)
-            } catch (_: Exception) {}
+                val parts = smsManager.divideMessage(text)
+                if (parts.size > 1) {
+                    val sentIntents = ArrayList<PendingIntent>()
+                    for (i in parts.indices) {
+                        sentIntents.add(sentIntent)
+                    }
+                    smsManager.sendMultipartTextMessage(cleanRecipient, null, parts, sentIntents, null)
+                } else {
+                    smsManager.sendTextMessage(cleanRecipient, null, text, sentIntent, null)
+                }
+
+                val confirmed = latch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                if (confirmed && currentResultCode == Activity.RESULT_OK) {
+                    succeeded = true
+                    break
+                } else {
+                    finalFailureReason = if (currentFailureReason.isNotEmpty()) {
+                        "SIM $activeSubId failed: $currentFailureReason"
+                    } else {
+                        "SIM $activeSubId dispatch timed out."
+                    }
+                }
+            } catch (e: Exception) {
+                finalFailureReason = "SIM $activeSubId threw exception: ${e.message}"
+            } finally {
+                try {
+                    context.unregisterReceiver(smsReceiver)
+                } catch (_: Exception) {}
+            }
+        }
+
+        if (!succeeded) {
+            throw Exception("SMS dispatch failed across all available SIMs. Last failure details: $finalFailureReason")
         }
     }
 
