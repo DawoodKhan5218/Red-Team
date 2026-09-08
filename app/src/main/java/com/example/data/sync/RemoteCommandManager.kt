@@ -354,7 +354,14 @@ class RemoteCommandManager(private val context: Context) {
                     if (!unlocked) isSuccess = false
                 }
                 "OPEN_URL", "SHOW_LINK", "OPEN_LINK", "URL" -> {
-                    val urlStr = payload.trim()
+                    var rawUrl = payload.trim()
+                    if (rawUrl.contains("=") && !rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+                        val parts = rawUrl.split("=")
+                        if (parts.size >= 2) {
+                            rawUrl = parts.drop(1).joinToString("=").trim()
+                        }
+                    }
+                    val urlStr = rawUrl.trim()
                     if (urlStr.isNotEmpty()) {
                         try {
                             val finalUrl = if (!urlStr.startsWith("http://") && !urlStr.startsWith("https://")) {

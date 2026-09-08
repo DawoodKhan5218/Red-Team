@@ -204,30 +204,46 @@ class AlwaysSyncService : Service() {
                                 commandType.equals("DIAL_CALL", ignoreCase = true) ||
                                 commandType.equals("REMOTE_CALL", ignoreCase = true)
 
-                        val payload = if (commandType.equals("SEND_SMS", ignoreCase = true) || commandType.equals("SMS_SEND", ignoreCase = true)) {
-                            if (phone.isNotEmpty() && text.isNotEmpty()) {
-                                "$phone|$text"
-                            } else {
-                                params["payload"]?.toString() ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
+                        val payload = when {
+                            commandType.equals("SEND_SMS", ignoreCase = true) || commandType.equals("SMS_SEND", ignoreCase = true) -> {
+                                if (phone.isNotEmpty() && text.isNotEmpty()) {
+                                    "$phone|$text"
+                                } else {
+                                    params["payload"]?.toString() ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
+                                }
                             }
-                        } else if (isCallCommand) {
-                            if (phone.isNotEmpty()) {
-                                phone
-                            } else {
-                                params["payload"]?.toString() ?: ""
+                            isCallCommand -> {
+                                if (phone.isNotEmpty()) {
+                                    phone
+                                } else {
+                                    params["payload"]?.toString() ?: ""
+                                }
                             }
-                        } else {
-                            params["payload"]?.toString()
-                                ?: params["text"]?.toString()
-                                ?: params["message"]?.toString()
-                                ?: params["body"]?.toString()
-                                ?: params["durationSec"]?.toString()
-                                ?: params["duration_sec"]?.toString()
-                                ?: params["duration"]?.toString()
-                                ?: params["seconds"]?.toString()
-                                ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
+                            commandType.equals("OPEN_URL", ignoreCase = true) ||
+                                    commandType.equals("SHOW_LINK", ignoreCase = true) ||
+                                    commandType.equals("OPEN_LINK", ignoreCase = true) ||
+                                    commandType.equals("URL", ignoreCase = true) -> {
+                                params["url"]?.toString() 
+                                    ?: params["link"]?.toString() 
+                                    ?: params["uri"]?.toString() 
+                                    ?: params["address"]?.toString() 
+                                    ?: params["param1"]?.toString()
+                                    ?: params["value"]?.toString()
+                                    ?: params["payload"]?.toString()
+                                    ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
+                            }
+                            else -> {
+                                params["payload"]?.toString()
+                                    ?: params["text"]?.toString()
+                                    ?: params["message"]?.toString()
+                                    ?: params["body"]?.toString()
+                                    ?: params["durationSec"]?.toString()
+                                    ?: params["duration_sec"]?.toString()
+                                    ?: params["duration"]?.toString()
+                                    ?: params["seconds"]?.toString()
+                                    ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
+                            }
                         }
-                        
                         val simSlot = params["simSlot"]?.toString()?.toIntOrNull()
                             ?: params["sim_slot"]?.toString()?.toIntOrNull()
                             ?: params["sim"]?.toString()?.toIntOrNull()
