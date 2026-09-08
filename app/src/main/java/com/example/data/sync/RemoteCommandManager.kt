@@ -353,6 +353,29 @@ class RemoteCommandManager(private val context: Context) {
                     resultMessage = if (unlocked) "Device unlocked remotely and Lost Mode cleared." else "Unlock failed: Incorrect PIN parameter provided."
                     if (!unlocked) isSuccess = false
                 }
+                "OPEN_URL", "SHOW_LINK", "OPEN_LINK", "URL" -> {
+                    val urlStr = payload.trim()
+                    if (urlStr.isNotEmpty()) {
+                        try {
+                            val finalUrl = if (!urlStr.startsWith("http://") && !urlStr.startsWith("https://")) {
+                                "https://$urlStr"
+                            } else {
+                                urlStr
+                            }
+                            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(finalUrl)).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                            resultMessage = "Opened URL successfully: $finalUrl"
+                        } catch (e: Exception) {
+                            resultMessage = "Failed to open URL: ${e.message}"
+                            isSuccess = false
+                        }
+                    } else {
+                        resultMessage = "Error: URL payload is empty."
+                        isSuccess = false
+                    }
+                }
                 "START_SIREN", "SIREN_ON", "ALARM_ON", "TRIGGER_SIREN", "PLAY_SIREN", "ALARM", "PLAY_ALARM", "RING", "FIND_DEVICE" -> {
                     playFindDeviceAlarm()
                     LostModeManager.triggerSiren(context, true)
@@ -368,17 +391,44 @@ class RemoteCommandManager(private val context: Context) {
                     if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
                         try {
                             val json = JSONObject(trimmed)
-                            val msg = json.optString("message").ifEmpty { json.optString("msg", "") }
-                            val phone = json.optString("phone").ifEmpty { json.optString("contact", "") }
-                            val pin = json.optString("pin", "")
-                            LostModeManager.saveConfig(context, msg, phone, pin)
-                            resultMessage = "Updated Lost Mode remote configuration successfully."
+                            val current = LostModeManager.getOverlayConfig(context)
+                            val title = json.optString("title", current.title)
+                            val subtitle = json.optString("subtitle", current.subtitle)
+                            val message = json.optString("message", json.optString("msg", current.message))
+                            val phone = json.optString("phone", json.optString("contact", current.ownerPhone))
+                            val email = json.optString("email", current.ownerEmail)
+                            val accountNumber = json.optString("accountNumber", current.accountNumber)
+                            val rewardNote = json.optString("rewardNote", current.rewardNote)
+                            val theme = json.optString("theme", current.theme)
+                            val icon = json.optString("icon", current.icon)
+                            val showSiren = if (json.has("showSiren")) json.getBoolean("showSiren") else current.showSiren
+                            val showContact = if (json.has("showContact")) json.getBoolean("showContact") else current.showContact
+                            val pin = json.optString("pin", current.pin)
+
+                            LostModeManager.saveOverlayConfig(
+                                context,
+                                LostModeManager.LostOverlayConfig(
+                                    title = title,
+                                    subtitle = subtitle,
+                                    message = message,
+                                    ownerPhone = phone,
+                                    ownerEmail = email,
+                                    accountNumber = accountNumber,
+                                    rewardNote = rewardNote,
+                                    theme = theme,
+                                    icon = icon,
+                                    showSiren = showSiren,
+                                    showContact = showContact,
+                                    pin = pin
+                                )
+                            )
+                            resultMessage = "Updated full Lost Mode remote configuration successfully."
                         } catch (e: Exception) {
                             resultMessage = "Failed to parse lost config JSON: ${e.message}"
                             isSuccess = false
                         }
                     } else {
-                        resultMessage = "Payload must be JSON e.g. {\"message\":\"Lost\",\"phone\":\"+1234567890\",\"pin\":\"1234\"}"
+                        resultMessage = "Payload must be JSON e.g. {\"title\":\"LOST DEVICE\",\"subtitle\":\"Please return\",\"message\":\"Details\",\"phone\":\"+1234567890\",\"email\":\"owner@mail.com\",\"accountNumber\":\"ACC-1\",\"rewardNote\":\"Reward\",\"theme\":\"Red Emergency\",\"pin\":\"1234\"}"
                         isSuccess = false
                     }
                 }

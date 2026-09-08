@@ -23,16 +23,6 @@ class BootReceiver : BroadcastReceiver() {
                 val isStealth = prefs.getBoolean("stealth_mode", false)
                 com.example.util.AppIconUtils.setAppIconVisibility(context, !isStealth)
             } catch (_: Exception) {}
-
-            // 2. Start background service and WorkManager
-            AlwaysSyncService.startService(context)
-
-            val syncWorkRequest = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES).build()
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                "EnterpriseSyncWorker",
-                ExistingPeriodicWorkPolicy.KEEP,
-                syncWorkRequest
-            )
         }
     }
 }

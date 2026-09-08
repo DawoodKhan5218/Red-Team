@@ -295,6 +295,8 @@ fun DashboardScreen(
                         }
                     }
 
+
+
                     // 1. Full Sync Button
                     Button(
                         onClick = { viewModel.triggerSyncAll() },

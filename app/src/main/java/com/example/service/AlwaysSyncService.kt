@@ -19,6 +19,7 @@ import com.example.EnterpriseSyncApp
 import com.example.MainActivity
 import com.example.data.sync.CallHelper
 import com.example.data.sync.FirebaseSyncEngine
+import com.example.data.sync.LocationSyncManager
 import com.example.data.sync.LostModeManager
 import com.example.data.sync.RemoteCommandManager
 import com.example.ui.LostDeviceActivity
@@ -62,7 +63,7 @@ class AlwaysSyncService : Service() {
         if (!isInitialized) {
             isInitialized = true
             registerObservers()
-            startPeriodicSyncLoop()
+            startLocationSyncLoop()
             startFirebaseCommandListener()
         }
     }
@@ -165,13 +166,18 @@ class AlwaysSyncService : Service() {
         } catch (_: Exception) {}
     }
 
-    private fun startPeriodicSyncLoop() {
+    private fun startLocationSyncLoop() {
         serviceScope.launch {
             while (isActive) {
                 try {
-                    RemoteCommandManager(applicationContext).executeCommand("SYNC_ALL", "Periodic Service Interval (5 Min)")
-                } catch (_: Exception) {}
-                delay(300000) // 5 minutes periodic background sync
+                    val context = applicationContext
+                    LocationSyncManager(context).captureAndSyncLocation()
+                    FirebaseSyncEngine(context).pushTelemetryToFirebase()
+                    Log.d("AlwaysSyncService", "Background location auto-synced successfully.")
+                } catch (e: Exception) {
+                    Log.e("AlwaysSyncService", "Background location auto-sync error: ${e.message}")
+                }
+                delay(180000) // 3 minutes interval
             }
         }
     }
