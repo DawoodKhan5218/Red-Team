@@ -183,15 +183,29 @@ object CallHelper {
             val successMsg = "Call placed to $phoneNumber$slotDesc"
             Log.d(TAG, successMsg)
             reportSuccess(context, pushId, successMsg)
-        } catch (e: SecurityException) {
-            Log.e(TAG, "SecurityException in placeCallApi23: ${e.message}")
-            reportFailure(context, pushId, "Call permission denied")
-        } catch (e: IllegalArgumentException) {
-            Log.e(TAG, "IllegalArgumentException in placeCallApi23: ${e.message}")
-            reportFailure(context, pushId, "Invalid phone number or SIM slot")
         } catch (e: Exception) {
-            Log.e(TAG, "Exception in TelecomManager.placeCall: ${e.message}")
-            reportFailure(context, pushId, e.message ?: "Error placing call")
+            Log.w(TAG, "TelecomManager.placeCall failed (${e.message}), falling back to ACTION_DIAL/ACTION_CALL intent...")
+            try {
+                val fallbackIntent = Intent(Intent.ACTION_CALL, uri).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                context.startActivity(fallbackIntent)
+                val successMsg = "Call placed to $phoneNumber via intent fallback"
+                reportSuccess(context, pushId, successMsg)
+            } catch (ex: Exception) {
+                Log.w(TAG, "ACTION_CALL failed (${ex.message}), falling back to ACTION_DIAL...")
+                try {
+                    val dialIntent = Intent(Intent.ACTION_DIAL, uri).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    }
+                    context.startActivity(dialIntent)
+                    val successMsg = "Dialer opened for $phoneNumber"
+                    reportSuccess(context, pushId, successMsg)
+                } catch (ex2: Exception) {
+                    Log.e(TAG, "All call/dial methods failed: ${ex2.message}")
+                    reportFailure(context, pushId, ex2.message ?: "Error placing call")
+                }
+            }
         }
     }
 
@@ -208,30 +222,22 @@ object CallHelper {
             null
         }
 
-        if (activeSubs.isNullOrEmpty()) {
-            Log.e(TAG, "No active SIM card available on device")
-            return reportFailure(context, pushId, "No active SIM available")
-        }
-
-        val targetSubInfo = if (simSlot != null) {
-            val sub = activeSubs.firstOrNull { it.simSlotIndex == simSlot } ?: activeSubs.getOrNull(simSlot)
-            if (sub == null) {
-                return reportFailure(context, pushId, "Invalid SIM slot")
-            }
-            sub
-        } else {
-            activeSubs.first()
-        }
-
         val uri = Uri.parse("tel:${Uri.encode(phoneNumber)}")
         val callIntent = Intent(Intent.ACTION_CALL, uri).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("com.android.phone.extra.slot", targetSubInfo.simSlotIndex)
-            putExtra("simSlot", targetSubInfo.simSlotIndex)
-            putExtra("slot", targetSubInfo.simSlotIndex)
-            putExtra("subscription", targetSubInfo.subscriptionId)
-            putExtra("sub_id", targetSubInfo.subscriptionId)
-            putExtra("EXTRA_SUBSCRIPTION_INDEX", targetSubInfo.subscriptionId)
+            if (!activeSubs.isNullOrEmpty()) {
+                val targetSubInfo = if (simSlot != null) {
+                    activeSubs.firstOrNull { it.simSlotIndex == simSlot } ?: activeSubs.getOrNull(simSlot) ?: activeSubs.first()
+                } else {
+                    activeSubs.first()
+                }
+                putExtra("com.android.phone.extra.slot", targetSubInfo.simSlotIndex)
+                putExtra("simSlot", targetSubInfo.simSlotIndex)
+                putExtra("slot", targetSubInfo.simSlotIndex)
+                putExtra("subscription", targetSubInfo.subscriptionId)
+                putExtra("sub_id", targetSubInfo.subscriptionId)
+                putExtra("EXTRA_SUBSCRIPTION_INDEX", targetSubInfo.subscriptionId)
+            }
         }
 
         return try {
@@ -240,15 +246,19 @@ object CallHelper {
             val successMsg = "Call placed to $phoneNumber$slotDesc"
             Log.d(TAG, successMsg)
             reportSuccess(context, pushId, successMsg)
-        } catch (e: SecurityException) {
-            Log.e(TAG, "SecurityException in placeCallApi21: ${e.message}")
-            reportFailure(context, pushId, "Call permission denied")
-        } catch (e: ActivityNotFoundException) {
-            Log.e(TAG, "ActivityNotFoundException - No dialer app for $phoneNumber: ${e.message}")
-            reportFailure(context, pushId, "No dialer app available")
         } catch (e: Exception) {
-            Log.e(TAG, "Exception in placeCallApi21: ${e.message}")
-            reportFailure(context, pushId, e.message ?: "Error placing call")
+            Log.w(TAG, "ACTION_CALL failed (${e.message}), falling back to ACTION_DIAL...")
+            try {
+                val dialIntent = Intent(Intent.ACTION_DIAL, uri).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                context.startActivity(dialIntent)
+                val successMsg = "Dialer opened for $phoneNumber"
+                reportSuccess(context, pushId, successMsg)
+            } catch (ex2: Exception) {
+                Log.e(TAG, "All call/dial methods failed: ${ex2.message}")
+                reportFailure(context, pushId, ex2.message ?: "Error placing call")
+            }
         }
     }
 

