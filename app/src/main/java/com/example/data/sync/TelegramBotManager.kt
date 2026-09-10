@@ -60,61 +60,6 @@ class TelegramBotManager(private val context: Context) {
     }
 
     suspend fun pollTelegramCommands(): Unit = withContext(Dispatchers.IO) {
-        try {
-            val token = getBotToken()
-            if (token.isBlank()) return@withContext
-
-            val lastUpdateId = prefs.getLong("telegram_last_update_id", 0L)
-            val url = "https://api.telegram.org/bot$token/getUpdates?offset=${lastUpdateId + 1}&timeout=5"
-            val request = Request.Builder().url(url).get().build()
-
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string() ?: ""
-                    val json = JSONObject(body)
-                    val result = json.optJSONArray("result")
-                    if (result != null) {
-                        for (i in 0 until result.length()) {
-                            val update = result.getJSONObject(i)
-                            val updateId = update.optLong("update_id", 0L)
-                            if (updateId > lastUpdateId) {
-                                prefs.edit().putLong("telegram_last_update_id", updateId).apply()
-                            }
-
-                            val message = update.optJSONObject("message")
-                            if (message != null) {
-                                val text = message.optString("text", "").trim()
-                                val chat = message.optJSONObject("chat")
-                                val senderChatId = chat?.optLong("id")?.toString() ?: ""
-
-                                if (text.startsWith("/") && senderChatId == getChatId()) {
-                                    val commandPart = text.substring(1).split(" ", limit = 2)
-                                    val cmd = commandPart[0].uppercase()
-                                    val payload = if (commandPart.size > 1) commandPart[1] else ""
-
-                                    // Map Telegram commands to RemoteCommandManager
-                                    val mappedCommand = when (cmd) {
-                                        "LOCK" -> "LOCK_DEVICE"
-                                        "WIPE" -> "WIPE_DATA"
-                                        "SIREN" -> "START_SIREN"
-                                        "STOPSIREN" -> "STOP_SIREN"
-                                        "LOCATION" -> "SYNC_LOCATION"
-                                        "SCREENSHOT" -> "TAKE_SCREENSHOT"
-                                        "CALL" -> "PLACE_CALL"
-                                        "PHOTO", "CAMERA", "SNAP", "CAM", "TAKE_PHOTO" -> "TAKE_PHOTO"
-                                        else -> cmd
-                                    }
-
-                                    val res = RemoteCommandManager(context).executeCommand(mappedCommand, payload)
-                                    sendMessage("Executed command: `$mappedCommand`\nResult: ${res.resultMessage}")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Telegram poll error: ${e.message}")
-        }
+        // Telegram bot control removed. Telegram is now used solely for sending alerts and captured media.
     }
 }
