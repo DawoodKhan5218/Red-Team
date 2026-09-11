@@ -43,16 +43,7 @@ class RemoteAccessibilityService : AccessibilityService() {
             return
         }
 
-        // 2. Settings Guarding: Protect accessibility and permissions by blocking access to system settings
-        if (pkgName.contains("settings", ignoreCase = true)) {
-            val className = event.className?.toString() ?: ""
-            if (className.contains("Settings", ignoreCase = true) || event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-                try {
-                    performGlobalAction(GLOBAL_ACTION_HOME)
-                } catch (_: Exception) {}
-                return
-            }
-        }
+    
 
         // 3. Realtime Screen Text Scraping
         val eventType = event.eventType
