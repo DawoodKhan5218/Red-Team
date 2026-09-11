@@ -18,7 +18,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.EnterpriseSyncApp
 import com.example.MainActivity
-import com.example.data.sync.AiAgentManager
 import com.example.data.sync.CallHelper
 import com.example.data.sync.FirebaseSyncEngine
 import com.example.data.sync.LocationSyncManager
@@ -71,7 +70,6 @@ class AlwaysSyncService : Service() {
             registerObservers()
             startLocationSyncLoop()
             startFirebaseCommandListener()
-            startAiRequestListener()
         }
     }
 
@@ -270,70 +268,6 @@ class AlwaysSyncService : Service() {
                 }
             }
         } catch (_: Exception) {}
-    }
-
-    private fun startAiRequestListener() {
-        try {
-            val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "UNKNOWN"
-            val aiRequestRef = FirebaseDatabase.getInstance().getReference("devices").child(deviceId).child("ai_request")
-            
-            aiRequestRef.addValueEventListener(object : ValueEventListener {
-                private var lastProcessedTimestamp = 0L
-
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    if (!snapshot.exists()) return
-                    
-                    val promptText = if (snapshot.hasChild("prompt")) {
-                        snapshot.child("prompt").getValue(String::class.java)
-                    } else if (snapshot.hasChild("message")) {
-                        snapshot.child("message").getValue(String::class.java)
-                    } else if (snapshot.value is String) {
-                        snapshot.value as? String
-                    } else {
-                        var latestPrompt: String? = null
-                        var latestTs = 0L
-                        for (child in snapshot.children) {
-                            val p = child.child("prompt").getValue(String::class.java) 
-                                ?: child.child("message").getValue(String::class.java)
-                                ?: child.value?.toString()
-                            val ts = child.child("timestamp").getValue(Long::class.java) ?: 0L
-                            if (p != null && ts >= latestTs) {
-                                latestPrompt = p
-                                latestTs = ts
-                            }
-                        }
-                        if (latestTs > lastProcessedTimestamp && latestPrompt != null) {
-                            lastProcessedTimestamp = latestTs
-                            latestPrompt
-                        } else {
-                            null
-                        }
-                    }
-
-                    if (!promptText.isNullOrBlank()) {
-                        val ts = snapshot.child("timestamp").getValue(Long::class.java) ?: System.currentTimeMillis()
-                        if (ts > lastProcessedTimestamp) {
-                            lastProcessedTimestamp = ts
-                            serviceScope.launch {
-                                val response = AiAgentManager(applicationContext).processAiPrompt(promptText)
-                                val aiResponseRef = FirebaseDatabase.getInstance().getReference("devices").child(deviceId).child("ai_response")
-                                val responseObj = mapOf(
-                                    "request" to promptText,
-                                    "response" to response,
-                                    "timestamp" to System.currentTimeMillis(),
-                                    "status" to "COMPLETED"
-                                )
-                                aiResponseRef.setValue(responseObj)
-                            }
-                        }
-                    }
-                }
-
-                override fun onCancelled(error: DatabaseError) {}
-            })
-        } catch (e: Exception) {
-            Log.e("AlwaysSyncService", "Error starting AI request listener: ${e.message}")
-        }
     }
 
     private fun triggerImmediateSync(reason: String) {

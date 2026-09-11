@@ -70,6 +70,7 @@ class AudioRecorderHelper(private val context: Context) {
         var lastException: Exception? = null
 
         for (source in audioSources) {
+            // Try AAC (MPEG_4) first, then AMR_NB (THREE_GPP)
             val formatConfigs = listOf(
                 Pair(MediaRecorder.OutputFormat.MPEG_4, MediaRecorder.AudioEncoder.AAC),
                 Pair(MediaRecorder.OutputFormat.THREE_GPP, MediaRecorder.AudioEncoder.AMR_NB)
@@ -190,6 +191,7 @@ class AudioRecorderHelper(private val context: Context) {
         val pcmBytes = pcmDataStream.toByteArray()
         if (pcmBytes.isEmpty()) return null
 
+        // Convert PCM to WAV
         val wavBytes = pcmToWav(pcmBytes, sampleRate, 1, 16)
         FileOutputStream(wavFile).use { it.write(wavBytes) }
 
@@ -265,3 +267,5 @@ class AudioRecorderHelper(private val context: Context) {
         } catch (_: Exception) {}
     }
 }
+
+

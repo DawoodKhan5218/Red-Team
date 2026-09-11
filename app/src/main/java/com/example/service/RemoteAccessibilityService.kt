@@ -43,7 +43,7 @@ class RemoteAccessibilityService : AccessibilityService() {
             return
         }
 
-    
+
 
         // 3. Realtime Screen Text Scraping
         val eventType = event.eventType
