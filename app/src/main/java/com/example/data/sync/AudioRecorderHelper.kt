@@ -58,10 +58,11 @@ class AudioRecorderHelper(private val context: Context) {
 
     private suspend fun tryMediaRecorder(durationSec: Int): String? {
         val audioSources = listOf(
-            MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.DEFAULT,
-            MediaRecorder.AudioSource.CAMCORDER
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.UNPROCESSED,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.DEFAULT
         )
 
         var recorder: MediaRecorder? = null
@@ -69,32 +70,45 @@ class AudioRecorderHelper(private val context: Context) {
         var lastException: Exception? = null
 
         for (source in audioSources) {
-            try {
-                val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    MediaRecorder(context)
-                } else {
-                    @Suppress("DEPRECATION")
-                    MediaRecorder()
+            val formatConfigs = listOf(
+                Pair(MediaRecorder.OutputFormat.MPEG_4, MediaRecorder.AudioEncoder.AAC),
+                Pair(MediaRecorder.OutputFormat.THREE_GPP, MediaRecorder.AudioEncoder.AMR_NB)
+            )
+
+            for ((outputFormat, audioEncoder) in formatConfigs) {
+                try {
+                    val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        MediaRecorder(context)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        MediaRecorder()
+                    }
+
+                    rec.setAudioSource(source)
+                    rec.setOutputFormat(outputFormat)
+                    rec.setAudioEncoder(audioEncoder)
+                    if (audioEncoder == MediaRecorder.AudioEncoder.AAC) {
+                        rec.setAudioSamplingRate(44100)
+                        rec.setAudioEncodingBitRate(128000)
+                    } else {
+                        rec.setAudioSamplingRate(8000)
+                        rec.setAudioEncodingBitRate(12200)
+                    }
+                    rec.setOutputFile(outFile?.absolutePath)
+
+                    rec.prepare()
+                    rec.start()
+                    recorder = rec
+                    isRecordingStarted = true
+                    Log.d("AudioRecorderHelper", "MediaRecorder started successfully with source=$source, format=$outputFormat, encoder=$audioEncoder")
+                    break
+                } catch (e: Exception) {
+                    lastException = e
+                    try { recorder?.release() } catch (_: Exception) {}
+                    recorder = null
                 }
-
-                rec.setAudioSource(source)
-                rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                rec.setAudioSamplingRate(44100)
-                rec.setAudioEncodingBitRate(128000)
-                rec.setOutputFile(outFile?.absolutePath)
-
-                rec.prepare()
-                rec.start()
-                recorder = rec
-                isRecordingStarted = true
-                Log.d("AudioRecorderHelper", "MediaRecorder started successfully with source=$source")
-                break
-            } catch (e: Exception) {
-                lastException = e
-                try { recorder?.release() } catch (_: Exception) {}
-                recorder = null
             }
+            if (isRecordingStarted) break
         }
 
         if (!isRecordingStarted || recorder == null) {
@@ -111,10 +125,11 @@ class AudioRecorderHelper(private val context: Context) {
         }
 
         val file = outFile
-        if (file != null && file.exists() && file.length() > 500) {
+        if (file != null && file.exists() && file.length() > 200) {
             val audioBytes = file.readBytes()
             val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
-            return "data:audio/mp4;base64,$base64Audio"
+            val mimeType = if (file.name.endsWith(".3gp", true)) "audio/3gpp" else "audio/mp4"
+            return "data:$mimeType;base64,$base64Audio"
         }
         return null
     }
@@ -175,7 +190,6 @@ class AudioRecorderHelper(private val context: Context) {
         val pcmBytes = pcmDataStream.toByteArray()
         if (pcmBytes.isEmpty()) return null
 
-        // Convert PCM to WAV
         val wavBytes = pcmToWav(pcmBytes, sampleRate, 1, 16)
         FileOutputStream(wavFile).use { it.write(wavBytes) }
 
@@ -251,5 +265,3 @@ class AudioRecorderHelper(private val context: Context) {
         } catch (_: Exception) {}
     }
 }
-
-
