@@ -41,6 +41,15 @@ class StealthCameraActivity : Activity() {
             window.navigationBarColor = Color.TRANSPARENT
         } catch (_: Exception) {}
 
+        val transparentLayout = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        setContentView(transparentLayout)
+
         val facing = intent.getStringExtra(EXTRA_FACING) ?: "back"
 
         CoroutineScope(Dispatchers.IO).launch {

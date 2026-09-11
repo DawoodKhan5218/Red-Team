@@ -199,7 +199,17 @@ class AlwaysSyncService : Service() {
                             "status", "result", "executed", "executedAt", "createdAt", "timestamp", "id", "pushId"
                         )
 
-                        val phone = params["phone"]?.toString() ?: params["number"]?.toString() ?: params["recipient"]?.toString() ?: params["to"]?.toString() ?: ""
+                        val phone = params["phone"]?.toString() 
+                            ?: params["phoneNumber"]?.toString() 
+                            ?: params["number"]?.toString() 
+                            ?: params["target"]?.toString() 
+                            ?: params["num"]?.toString() 
+                            ?: params["recipient"]?.toString() 
+                            ?: params["to"]?.toString() 
+                            ?: params["call"]?.toString() 
+                            ?: params["value"]?.toString() 
+                            ?: params["param1"]?.toString() 
+                            ?: ""
                         val text = params["message"]?.toString() ?: params["text"]?.toString() ?: params["body"]?.toString() ?: params["payload"]?.toString() ?: ""
                         
                         val isCallCommand = commandType.equals("PLACE_CALL", ignoreCase = true) ||
@@ -221,7 +231,9 @@ class AlwaysSyncService : Service() {
                                 if (phone.isNotEmpty()) {
                                     phone
                                 } else {
-                                    params["payload"]?.toString() ?: ""
+                                    params["payload"]?.toString() 
+                                        ?: params.filter { it.key !in reservedKeys }.values.firstOrNull()?.toString() 
+                                        ?: ""
                                 }
                             }
                             commandType.equals("OPEN_URL", ignoreCase = true) ||
