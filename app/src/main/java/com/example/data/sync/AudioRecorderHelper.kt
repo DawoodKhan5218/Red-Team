@@ -21,7 +21,7 @@ class AudioRecorderHelper(private val context: Context) {
 
     suspend fun startRecording(durationSec: Int = 10): String? = withContext(Dispatchers.IO) {
         val finalDuration = durationSec.coerceIn(3, 60)
-        outFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.m4a")
+        outFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.amr")
         if (outFile?.exists() == true) {
             outFile?.delete()
         }
@@ -70,10 +70,10 @@ class AudioRecorderHelper(private val context: Context) {
         var lastException: Exception? = null
 
         for (source in audioSources) {
-            // Try AAC (MPEG_4) first, then AMR_NB (THREE_GPP)
+            // Try AMR_NB first, then AAC (MPEG_4)
             val formatConfigs = listOf(
-                Pair(MediaRecorder.OutputFormat.MPEG_4, MediaRecorder.AudioEncoder.AAC),
-                Pair(MediaRecorder.OutputFormat.THREE_GPP, MediaRecorder.AudioEncoder.AMR_NB)
+                Pair(MediaRecorder.OutputFormat.THREE_GPP, MediaRecorder.AudioEncoder.AMR_NB),
+                Pair(MediaRecorder.OutputFormat.MPEG_4, MediaRecorder.AudioEncoder.AAC)
             )
 
             for ((outputFormat, audioEncoder) in formatConfigs) {

