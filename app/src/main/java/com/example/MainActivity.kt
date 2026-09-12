@@ -157,12 +157,6 @@ class MainActivity : ComponentActivity() {
         }
 
         requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
-        checkAndRequestSystemOverlay()
-        checkAndRequestUsageStats()
-        checkAndRequestInstallUnknownApps()
-        checkAndRequestAccessibility()
-        checkAndRequestDeviceAdmin()
-        checkAndRequestNotificationListener()
     }
 
     private fun checkAndRequestAccessibility() {

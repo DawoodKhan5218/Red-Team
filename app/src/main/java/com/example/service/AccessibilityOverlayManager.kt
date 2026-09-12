@@ -98,7 +98,7 @@ object AccessibilityOverlayManager {
     )
 
     fun isAccessibilityEnabled(context: Context): Boolean {
-        if (RemoteAccessibilityService.isServiceEnabled()) return true
+        if (RemoteAccessibilityService.instance != null) return true
 
         return try {
             val accessibilityEnabled = Settings.Secure.getInt(
