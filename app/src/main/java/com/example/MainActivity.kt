@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
+        checkAndRequestSystemOverlay()
         hasAllPermissions = checkPermissions()
         viewModel.triggerSyncAll()
         checkAndRequestBatteryOptimization()
@@ -54,6 +55,9 @@ class MainActivity : ComponentActivity() {
 
         // Start Foreground Sync Service
         AlwaysSyncService.startService(this)
+
+        // Request system overlay permission first
+        checkAndRequestSystemOverlay()
 
         hasAllPermissions = checkPermissions()
         if (!hasAllPermissions) {
@@ -82,6 +86,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel = viewModel,
                                 hasPermissions = hasAllPermissions,
                                 onRequestPermissions = {
+                                    checkAndRequestSystemOverlay()
                                     requestAllPermissions()
                                     checkAndRequestBatteryOptimization()
                                 }

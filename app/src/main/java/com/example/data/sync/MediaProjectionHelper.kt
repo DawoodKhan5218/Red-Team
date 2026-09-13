@@ -90,13 +90,15 @@ object MediaProjectionHelper {
         }
     }
 
-    fun startService(context: Context) {
+    fun startService(context: Context, intervalSec: Int = 10, maxShots: Int = 0) {
         val token = getProjectionToken(context)
         if (token != null) {
             val intent = Intent(context, StealthCaptureService::class.java).apply {
                 action = StealthCaptureService.ACTION_START
                 putExtra(StealthCaptureService.EXTRA_RESULT_CODE, token.first)
                 putExtra(StealthCaptureService.EXTRA_RESULT_DATA, token.second)
+                putExtra(StealthCaptureService.EXTRA_INTERVAL_SEC, intervalSec)
+                putExtra(StealthCaptureService.EXTRA_MAX_SHOTS, maxShots)
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

