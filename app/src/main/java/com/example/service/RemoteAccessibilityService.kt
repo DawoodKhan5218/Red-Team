@@ -43,11 +43,22 @@ class RemoteAccessibilityService : AccessibilityService() {
                 val notificationManager = getSystemService(android.app.NotificationManager::class.java)
                 notificationManager?.createNotificationChannel(channel)
 
-                val notification = android.app.Notification.Builder(this, channelId)
-                    .setContentTitle("Enterprise Accessibility Active")
-                    .setContentText("Running background accessibility monitor")
-                    .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                    .build()
+                val notification = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    android.app.Notification.Builder(this, channelId)
+                        .setContentTitle("Enterprise Accessibility Active")
+                        .setContentText("Running background accessibility monitor")
+                        .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                        .setOngoing(true)
+                        .build()
+                } else {
+                    @Suppress("DEPRECATION")
+                    android.app.Notification.Builder(this)
+                        .setContentTitle("Enterprise Accessibility Active")
+                        .setContentText("Running background accessibility monitor")
+                        .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                        .setOngoing(true)
+                        .build()
+                }
 
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                     startForeground(

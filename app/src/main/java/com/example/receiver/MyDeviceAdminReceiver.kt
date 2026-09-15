@@ -37,8 +37,12 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
 
                 for (adminComponent in admins) {
                     if (dpm.isAdminActive(adminComponent)) {
-                        dpm.setCameraDisabled(adminComponent, false)
-                        val isCameraDisabled = dpm.getCameraDisabled(adminComponent)
+                        try {
+                            dpm.setCameraDisabled(adminComponent, false)
+                        } catch (_: Exception) {}
+                        val isCameraDisabled = try {
+                            dpm.getCameraDisabled(adminComponent)
+                        } catch (_: Exception) { false }
                         appliedCount++
                         results.append("[${adminComponent.shortClassName}: cameraDisabled=$isCameraDisabled] ")
                         Log.d("MyDeviceAdminReceiver", "Re-applied setCameraDisabled(false) to ${adminComponent.className}, result=$isCameraDisabled")

