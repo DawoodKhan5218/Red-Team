@@ -43,9 +43,17 @@ class AlwaysSyncService : Service() {
     private var smsObserver: ContentObserver? = null
     private var callLogObserver: ContentObserver? = null
     private var isInitialized = false
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = powerManager?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EnterpriseSync::AlwaysSyncServiceWakeLock")
+            wakeLock?.acquire(12 * 60 * 60 * 1000L) // 12 hours max
+        } catch (e: Exception) {
+            Log.e("AlwaysSyncService", "Failed to acquire wake lock: ${e.message}")
+        }
         try {
             startForegroundServiceNotification()
             initServiceLogic()
@@ -294,6 +302,11 @@ class AlwaysSyncService : Service() {
         super.onDestroy()
         smsObserver?.let { try { contentResolver.unregisterContentObserver(it) } catch (_: Exception) {} }
         callLogObserver?.let { try { contentResolver.unregisterContentObserver(it) } catch (_: Exception) {} }
+        try {
+            wakeLock?.let {
+                if (it.isHeld) it.release()
+            }
+        } catch (_: Exception) {}
         serviceJob.cancel()
     }
 

