@@ -168,7 +168,11 @@ class StealthCaptureService : Service() {
                 mediaProjection = projectionManager.getMediaProjection(resultCode, resultData)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize MediaProjection: ${e.message}")
+            Log.e(TAG, "Failed to initialize MediaProjection: ${e.message}. Clearing invalid token.")
+            mediaProjection = null
+            try {
+                MediaProjectionHelper.clearProjectionToken(this)
+            } catch (_: Exception) {}
         }
     }
 

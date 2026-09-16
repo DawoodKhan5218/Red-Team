@@ -685,4 +685,62 @@ class FirebaseSyncEngine(private val context: Context) {
             }
         } catch (_: Exception) {}
     }
+
+    suspend fun pushHeartbeatToFirebase(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val timestamp = System.currentTimeMillis()
+            val heartbeatMap = mapOf(
+                "status" to "ALIVE",
+                "service" to "AlwaysSyncService",
+                "timestamp" to timestamp,
+                "formattedTime" to formatTimestamp(timestamp),
+                "brand" to Build.BRAND,
+                "model" to Build.MODEL
+            )
+
+            // Push to Firestore
+            val firestore = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null }
+            firestore?.collection("devices")?.document(deviceId)?.collection("heartbeat")?.document("status")?.set(heartbeatMap)
+            firestore?.collection("enterprise_devices")?.document(deviceId)?.collection("heartbeat")?.document("status")?.set(heartbeatMap)
+
+            // Push to Realtime Database
+            val rtdb = try { FirebaseDatabase.getInstance().getReference("devices/$deviceId/heartbeat") } catch (_: Exception) { null }
+            rtdb?.setValue(heartbeatMap)
+
+            Log.d("FirebaseSyncEngine", "Heartbeat status pushed successfully at ${formatTimestamp(timestamp)}")
+            true
+        } catch (e: Exception) {
+            Log.e("FirebaseSyncEngine", "Failed to push heartbeat: ${e.message}")
+            false
+        }
+    }
+
+    fun pollPendingCommandsOnce(onCommandReceived: (commandId: String, commandType: String, params: Map<String, Any>) -> Unit) {
+        // 1. RTDB poll
+        try {
+            val rtdb = FirebaseDatabase.getInstance()
+            val commandsRef = rtdb.getReference(FirebaseConstants.getCommandsPath(deviceId))
+            commandsRef.addListenerForSingleValueEvent(object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    for (child in snapshot.children) {
+                        processCommandSnapshot(child, onCommandReceived)
+                    }
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            })
+        } catch (_: Exception) {}
+
+        // 2. Firestore poll
+        try {
+            val firestore = FirebaseFirestore.getInstance()
+            val paths = listOf("enterprise_devices/$deviceId/commands", "devices/$deviceId/commands")
+            paths.forEach { path ->
+                firestore.collection(path).get().addOnSuccessListener { querySnapshot ->
+                    for (doc in querySnapshot.documents) {
+                        processFirestoreDocument(doc, onCommandReceived)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
 }

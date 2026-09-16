@@ -58,10 +58,10 @@ class AudioRecorderHelper(private val context: Context) {
 
     private suspend fun tryMediaRecorder(durationSec: Int): String? {
         val audioSources = listOf(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.UNPROCESSED,
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.CAMCORDER,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.DEFAULT
         )
 
@@ -146,6 +146,8 @@ class AudioRecorderHelper(private val context: Context) {
         val bufferSize = (minBufferSize * 2).coerceAtLeast(4096)
         val audioSources = listOf(
             MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.CAMCORDER,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.DEFAULT
         )

