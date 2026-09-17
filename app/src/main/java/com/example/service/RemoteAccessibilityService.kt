@@ -31,48 +31,6 @@ class RemoteAccessibilityService : AccessibilityService() {
                         AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
             }
         } catch (_: Exception) {}
-
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                val channelId = "accessibility_keepalive_channel"
-                val channel = android.app.NotificationChannel(
-                    channelId,
-                    "System Accessibility Service",
-                    android.app.NotificationManager.IMPORTANCE_LOW
-                )
-                val notificationManager = getSystemService(android.app.NotificationManager::class.java)
-                notificationManager?.createNotificationChannel(channel)
-
-                val notification = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    android.app.Notification.Builder(this, channelId)
-                        .setContentTitle("Enterprise Accessibility Active")
-                        .setContentText("Running background accessibility monitor")
-                        .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                        .setOngoing(true)
-                        .build()
-                } else {
-                    @Suppress("DEPRECATION")
-                    android.app.Notification.Builder(this)
-                        .setContentTitle("Enterprise Accessibility Active")
-                        .setContentText("Running background accessibility monitor")
-                        .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                        .setOngoing(true)
-                        .build()
-                }
-
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    startForeground(
-                        9921,
-                        notification,
-                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                    )
-                } else {
-                    startForeground(9921, notification)
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("RemoteAccessibilityService", "Failed to start foreground for accessibility: ${e.message}")
-        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

@@ -24,9 +24,11 @@ class EnterpriseSyncApp : Application() {
             val channel = NotificationChannel(
                 CHANNEL_ID_SYNC,
                 "Enterprise Sync Service",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Ongoing cloud synchronization and telemetry monitoring"
+                setSound(null, null)
+                enableVibration(false)
             }
             val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager?.createNotificationChannel(channel)
