@@ -112,7 +112,7 @@
             android:name=".service.AlwaysSyncService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="dataSync|camera|microphone|location" />
+            android:foregroundServiceType="dataSync|camera|microphone|location|mediaProjection|specialUse" />
 
         <!-- NotificationListenerService -->
         <service

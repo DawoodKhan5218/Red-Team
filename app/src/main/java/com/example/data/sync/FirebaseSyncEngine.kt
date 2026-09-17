@@ -539,6 +539,21 @@ class FirebaseSyncEngine(private val context: Context) {
             Log.e("FirebaseSyncEngine", "Error starting RTDB command listener: ${e.message}")
         }
 
+        // 1b. Connection state monitoring (.info/connected)
+        try {
+            val connectedRef = FirebaseDatabase.getInstance().getReference(".info/connected")
+            connectedRef.addValueEventListener(object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val connected = snapshot.getValue(Boolean::class.java) ?: false
+                    Log.d("FirebaseSyncEngine", "Firebase RTDB connection state changed: connected=$connected")
+                    if (connected) {
+                        pollPendingCommandsOnce(onCommandReceived)
+                    }
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            })
+        } catch (_: Exception) {}
+
         // 2. Firestore Listener (both enterprise_devices and devices collections)
         try {
             val firestore = FirebaseFirestore.getInstance()

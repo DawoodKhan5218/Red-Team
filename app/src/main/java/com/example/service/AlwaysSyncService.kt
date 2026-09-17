@@ -94,13 +94,13 @@ class AlwaysSyncService : Service() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) {
                     alarmManager.setExactAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
-                        System.currentTimeMillis() + 900000L, // 15 minutes
+                        System.currentTimeMillis() + 300000L, // 5 minutes
                         pendingIntent
                     )
                 } else {
                     alarmManager.set(
                         AlarmManager.RTC_WAKEUP,
-                        System.currentTimeMillis() + 900000L,
+                        System.currentTimeMillis() + 300000L,
                         pendingIntent
                     )
                 }

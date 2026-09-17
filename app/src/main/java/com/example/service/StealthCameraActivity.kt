@@ -146,9 +146,9 @@ class StealthCameraActivity : Activity() {
                 }
             }
 
-            // Await foreground camera capture for up to 6 seconds
+            // Await foreground camera capture for up to 12 seconds
             try {
-                latch.await(6, TimeUnit.SECONDS)
+                latch.await(12, TimeUnit.SECONDS)
             } catch (_: Exception) {}
 
             try {

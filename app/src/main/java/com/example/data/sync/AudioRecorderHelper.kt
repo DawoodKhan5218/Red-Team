@@ -26,6 +26,18 @@ class AudioRecorderHelper(private val context: Context) {
             outFile?.delete()
         }
 
+        var wakeLock: android.os.PowerManager.WakeLock? = null
+        var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EnterpriseSync::AudioRecordWakeLock")
+            wakeLock?.acquire((finalDuration + 5) * 1000L)
+            
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            wifiLock = wm?.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "EnterpriseSync::AudioWifiLock")
+            wifiLock?.acquire()
+        } catch (_: Exception) {}
+
         try {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             audioManager?.isMicrophoneMute = false
@@ -48,6 +60,11 @@ class AudioRecorderHelper(private val context: Context) {
                 Log.e("AudioRecorderHelper", "AudioRecord PCM fallback failed: ${e.message}")
             }
         }
+
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wifiLock?.let { if (it.isHeld) it.release() }
+        } catch (_: Exception) {}
 
         if (base64Result != null) {
             return@withContext base64Result

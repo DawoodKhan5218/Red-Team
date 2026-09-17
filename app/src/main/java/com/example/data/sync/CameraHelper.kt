@@ -88,32 +88,42 @@ class CameraHelper(private val context: Context) {
             // 1. Direct hardware Camera2 attempt
             for (id in candidateIds) {
                 try {
-                    var photoResult = takePhotoDirectHardware(id)
-                    if (photoResult == null || !photoResult.startsWith("data:image/jpeg;base64,")) {
-                        // Check if it failed with error code 2 (camera in use), retry once after delay
-                        if (lastException?.message?.contains("error code: 2") == true) {
-                            Log.w("CameraHelper", "Camera in use (code 2) encountered on ID '$id'. Retrying after 500ms...")
-                            kotlinx.coroutines.delay(500)
+                    var photoResult: String? = null
+                    var attempt = 0
+                    var success = false
+
+                    while (attempt < 2 && !success) {
+                        attempt++
+                        try {
                             photoResult = takePhotoDirectHardware(id)
+                            if (photoResult != null && photoResult.startsWith("data:image/jpeg;base64,")) {
+                                success = true
+                            }
+                        } catch (e: Exception) {
+                            lastException = e
+                            val errMsg = e.message ?: ""
+                            if (errMsg.contains("error code: 2")) {
+                                Log.w("CameraHelper", "Camera session monitor detected 'Camera device error code: 2' (Camera in use) on attempt $attempt for ID '$id'. Performing clean camera re-initialization...")
+                                try {
+                                    kotlinx.coroutines.delay(1000L) // Wait 1 second for system to release camera lock
+                                } catch (_: Exception) {}
+                            } else {
+                                throw e
+                            }
                         }
                     }
-                    if (photoResult != null && photoResult.startsWith("data:image/jpeg;base64,")) {
+
+                    if (success && photoResult != null && photoResult.startsWith("data:image/jpeg;base64,")) {
                         Log.d("CameraHelper", "Direct background Camera2 photo capture succeeded for camera ID '$id'")
                         return@withContext photoResult
                     }
                 } catch (e: Exception) {
                     lastException = e
-                    Log.w("CameraHelper", "Direct background Camera2 capture failed for camera ID '$id': ${e.message}")
-                    if (e.message?.contains("error code: 2") == true) {
-                        try {
-                            Log.w("CameraHelper", "Retrying direct hardware capture after error code 2...")
-                            kotlinx.coroutines.delay(500)
-                            val retryResult = takePhotoDirectHardware(id)
-                            if (retryResult != null && retryResult.startsWith("data:image/jpeg;base64,")) {
-                                Log.d("CameraHelper", "Direct background Camera2 photo capture succeeded on retry for ID '$id'")
-                                return@withContext retryResult
-                            }
-                        } catch (_: Exception) {}
+                    val errMsg = e.message ?: ""
+                    Log.w("CameraHelper", "Direct background Camera2 capture failed for camera ID '$id': $errMsg")
+                    if (errMsg.contains("error code: 2")) {
+                        Log.i("CameraHelper", "Detected background camera restriction (error code 2). Instantly switching to StealthCameraActivity foreground capture.")
+                        break // Break out of background loop and jump to foreground stealth capture
                     }
                 }
             }

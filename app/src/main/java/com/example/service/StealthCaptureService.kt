@@ -166,13 +166,17 @@ class StealthCaptureService : Service() {
             if (mediaProjection == null) {
                 val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 mediaProjection = projectionManager.getMediaProjection(resultCode, resultData)
+                mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                    override fun onStop() {
+                        super.onStop()
+                        Log.w(TAG, "MediaProjection session was stopped by OS.")
+                        mediaProjection = null
+                    }
+                }, handler)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize MediaProjection: ${e.message}. Clearing invalid token.")
+            Log.e(TAG, "Failed to initialize MediaProjection: ${e.message}")
             mediaProjection = null
-            try {
-                MediaProjectionHelper.clearProjectionToken(this)
-            } catch (_: Exception) {}
         }
     }
 
@@ -254,7 +258,15 @@ class StealthCaptureService : Service() {
             return
         }
 
-        val proj = mediaProjection
+        var proj = mediaProjection
+        if (proj == null) {
+            val token = MediaProjectionHelper.getProjectionToken(this)
+            if (token != null) {
+                initMediaProjection(token.first, token.second)
+                proj = mediaProjection
+            }
+        }
+
         if (proj == null) {
             Log.w(TAG, "MediaProjection is null during capture attempt.")
             return
