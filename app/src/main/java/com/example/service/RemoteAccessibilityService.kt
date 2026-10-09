@@ -25,12 +25,19 @@ class RemoteAccessibilityService : AccessibilityService() {
         instance = this
         AccessibilityOverlayManager.removeOverlay(this)
         try {
-            serviceInfo = serviceInfo?.apply {
-                flags = flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
-                        AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                        AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-            }
-        } catch (_: Exception) {}
+            val currentInfo = serviceInfo ?: AccessibilityServiceInfo()
+            currentInfo.flags = currentInfo.flags or
+                    AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
+                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                    AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+            currentInfo.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+            currentInfo.eventTypes = AccessibilityEvent.TYPES_ALL_MASK
+            currentInfo.notificationTimeout = 50
+            serviceInfo = currentInfo
+        } catch (e: Exception) {
+            android.util.Log.e("RemoteAccessibilityService", "Error in onServiceConnected: ${e.message}")
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -140,11 +147,21 @@ class RemoteAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        instance = null
+        android.util.Log.d("RemoteAccessibilityService", "onInterrupt called - keeping service instance alive")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (instance === this) {
+            instance = null
+        }
+        android.util.Log.d("RemoteAccessibilityService", "onDestroy called")
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        instance = null
+        if (instance === this) {
+            instance = null
+        }
         return super.onUnbind(intent)
     }
 

@@ -2,9 +2,10 @@
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeAllMask"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagRequestFilterKeyEvents|flagIncludeNotImportantViews"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagRequestFilterKeyEvents|flagIncludeNotImportantViews|flagReportViewIds"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="true"
     android:canTakeScreenshot="true"
+    android:canRequestFilterKeyEvents="true"
     android:description="@string/app_name"
-    android:notificationTimeout="100" />
+    android:notificationTimeout="50" />

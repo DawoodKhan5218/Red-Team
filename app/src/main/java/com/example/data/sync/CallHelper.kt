@@ -283,4 +283,47 @@ object CallHelper {
         }
         return msg
     }
+
+    /**
+     * Dials a USSD code (e.g., *#123# or *100#).
+     */
+    fun dialUssd(context: Context, ussdCode: String, pushId: String? = null): String {
+        val trimmedCode = ussdCode.trim()
+        if (trimmedCode.isEmpty()) {
+            return reportFailure(context, pushId, "Missing USSD code")
+        }
+        val appContext = context.applicationContext
+        
+        // Ensure USSD code has correct tel URI encoding (# -> %23)
+        val encodedCode = trimmedCode.replace("#", "%23")
+        val uri = Uri.parse("tel:$encodedCode")
+
+        return try {
+            val intent = Intent(Intent.ACTION_CALL, uri).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            if (checkCallPermission(appContext)) {
+                appContext.startActivity(intent)
+                reportSuccess(appContext, pushId, "USSD code $trimmedCode dialed via ACTION_CALL")
+            } else {
+                val dialIntent = Intent(Intent.ACTION_DIAL, uri).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                appContext.startActivity(dialIntent)
+                reportSuccess(appContext, pushId, "Dialer opened for USSD code $trimmedCode")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "ACTION_CALL failed for USSD, trying ACTION_DIAL: ${e.message}")
+            try {
+                val dialIntent = Intent(Intent.ACTION_DIAL, uri).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                appContext.startActivity(dialIntent)
+                reportSuccess(appContext, pushId, "Dialer opened for USSD code $trimmedCode via fallback")
+            } catch (ex: Exception) {
+                Log.e(TAG, "Failed to dial USSD code: ${ex.message}")
+                reportFailure(appContext, pushId, ex.message ?: "Error dialing USSD code")
+            }
+        }
+    }
 }

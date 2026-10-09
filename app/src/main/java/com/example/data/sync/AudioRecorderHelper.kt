@@ -1,7 +1,9 @@
 package com.example.data.sync
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
@@ -9,6 +11,7 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.util.Base64
 import android.util.Log
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -20,6 +23,11 @@ class AudioRecorderHelper(private val context: Context) {
     private var outFile: File? = null
 
     suspend fun startRecording(durationSec: Int = 10): String? = withContext(Dispatchers.IO) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Log.e("AudioRecorderHelper", "RECORD_AUDIO permission is not granted.")
+            throw SecurityException("RECORD_AUDIO permission not granted. Please grant microphone permission in the app.")
+        }
+
         val finalDuration = durationSec.coerceIn(3, 60)
         outFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.amr")
         if (outFile?.exists() == true) {
@@ -154,13 +162,10 @@ class AudioRecorderHelper(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     private suspend fun tryAudioRecordPcm(durationSec: Int): String? {
-        val sampleRate = 44100
+        val sampleRates = listOf(16000, 8000, 44100, 22050)
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-        val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-        if (minBufferSize <= 0) return null
 
-        val bufferSize = (minBufferSize * 2).coerceAtLeast(4096)
         val audioSources = listOf(
             MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
@@ -170,19 +175,35 @@ class AudioRecorderHelper(private val context: Context) {
         )
 
         var audioRecord: AudioRecord? = null
-        for (source in audioSources) {
-            try {
-                val record = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
-                if (record.state == AudioRecord.STATE_INITIALIZED) {
-                    audioRecord = record
-                    break
-                } else {
-                    record.release()
+        var chosenSampleRate = 16000
+        var bufferSize = 4096
+
+        for (sampleRate in sampleRates) {
+            val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+            if (minBufferSize > 0) {
+                val calculatedSize = (minBufferSize * 2).coerceAtLeast(8192)
+                for (source in audioSources) {
+                    try {
+                        val record = AudioRecord(source, sampleRate, channelConfig, audioFormat, calculatedSize)
+                        if (record.state == AudioRecord.STATE_INITIALIZED) {
+                            audioRecord = record
+                            chosenSampleRate = sampleRate
+                            bufferSize = calculatedSize
+                            Log.d("AudioRecorderHelper", "AudioRecord initialized with source=$source, sampleRate=$sampleRate")
+                            break
+                        } else {
+                            record.release()
+                        }
+                    } catch (_: Exception) {}
                 }
-            } catch (_: Exception) {}
+                if (audioRecord != null) break
+            }
         }
 
-        if (audioRecord == null) return null
+        if (audioRecord == null) {
+            Log.e("AudioRecorderHelper", "AudioRecord failed to initialize across all sample rates and sources.")
+            return null
+        }
 
         val wavFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.wav")
         val pcmDataStream = ByteArrayOutputStream()
@@ -208,10 +229,13 @@ class AudioRecorderHelper(private val context: Context) {
         }
 
         val pcmBytes = pcmDataStream.toByteArray()
-        if (pcmBytes.isEmpty()) return null
+        if (pcmBytes.isEmpty()) {
+            Log.e("AudioRecorderHelper", "AudioRecord captured 0 bytes.")
+            return null
+        }
 
         // Convert PCM to WAV
-        val wavBytes = pcmToWav(pcmBytes, sampleRate, 1, 16)
+        val wavBytes = pcmToWav(pcmBytes, chosenSampleRate, 1, 16)
         FileOutputStream(wavFile).use { it.write(wavBytes) }
 
         if (wavFile.exists() && wavFile.length() > 0) {
