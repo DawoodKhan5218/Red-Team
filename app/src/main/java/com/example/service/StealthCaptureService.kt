@@ -410,15 +410,16 @@ class StealthCaptureService : Service() {
         try {
             wakeLock?.let { if (it.isHeld) it.release() }
         } catch (_: Exception) {}
-        try {
-            mediaProjection?.stop()
-        } catch (_: Exception) {}
-        mediaProjection = null
-        Log.d(TAG, "StealthCaptureService stopped cleanly.")
+        // Do NOT call mediaProjection?.stop() here so session remains valid for subsequent captures
+        Log.d(TAG, "StealthCaptureService stopped cleanly (MediaProjection retained).")
     }
 
     override fun onDestroy() {
         stopCaptureAndCleanup()
+        try {
+            mediaProjection?.stop()
+        } catch (_: Exception) {}
+        mediaProjection = null
         serviceScope.cancel()
         super.onDestroy()
     }

