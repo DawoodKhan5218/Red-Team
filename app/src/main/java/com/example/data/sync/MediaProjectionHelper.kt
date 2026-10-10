@@ -115,6 +115,8 @@ object MediaProjectionHelper {
     }
 
     fun stopService(context: Context) {
+        clearProjectionToken(context)
+        StealthCaptureService.activeMediaProjection = null
         try {
             val intent = Intent(context, StealthCaptureService::class.java).apply {
                 action = StealthCaptureService.ACTION_STOP

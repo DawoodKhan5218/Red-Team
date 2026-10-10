@@ -123,6 +123,9 @@ class StealthCaptureService : Service() {
                 }
             }
             ACTION_STOP -> {
+                MediaProjectionHelper.clearProjectionToken(this)
+                activeMediaProjection = null
+                mediaProjection = null
                 stopCaptureAndCleanup()
                 stopSelf()
             }
@@ -134,7 +137,8 @@ class StealthCaptureService : Service() {
                     initMediaProjection(token.first, token.second)
                     startCaptureLoop()
                 } else {
-                    Log.w(TAG, "Service restarted but no projection token found.")
+                    Log.w(TAG, "Service restarted but no projection token found. Stopping self.")
+                    stopSelf()
                 }
             }
         }
