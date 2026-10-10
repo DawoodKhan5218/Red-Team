@@ -52,20 +52,20 @@ class AudioRecorderHelper(private val context: Context) {
             audioManager?.mode = AudioManager.MODE_NORMAL
         } catch (_: Exception) {}
 
-        // Strategy 1: MediaRecorder with multiple sources and formats
+        // Strategy 1: Low-level AudioRecord PCM capture (WAV) - highly reliable across all devices and emulators
         var base64Result: String? = null
         try {
-            base64Result = tryMediaRecorder(finalDuration)
+            base64Result = tryAudioRecordPcm(finalDuration)
         } catch (e: Exception) {
-            Log.w("AudioRecorderHelper", "MediaRecorder failed: ${e.message}, trying AudioRecord fallback")
+            Log.w("AudioRecorderHelper", "AudioRecord PCM failed: ${e.message}, trying MediaRecorder fallback")
         }
 
-        // Strategy 2: Low-level AudioRecord PCM capture (WAV) if MediaRecorder failed
+        // Strategy 2: MediaRecorder fallback if AudioRecord failed
         if (base64Result == null) {
             try {
-                base64Result = tryAudioRecordPcm(finalDuration)
+                base64Result = tryMediaRecorder(finalDuration)
             } catch (e: Exception) {
-                Log.e("AudioRecorderHelper", "AudioRecord PCM fallback failed: ${e.message}")
+                Log.e("AudioRecorderHelper", "MediaRecorder fallback failed: ${e.message}")
             }
         }
 
