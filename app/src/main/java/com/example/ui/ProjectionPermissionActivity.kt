@@ -21,6 +21,20 @@ class ProjectionPermissionActivity : ComponentActivity() {
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             Log.d(TAG, "MediaProjection permission granted by user.")
+            try {
+                val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
+                val projection = projectionManager?.getMediaProjection(result.resultCode, result.data!!)
+                com.example.service.StealthCaptureService.activeMediaProjection = projection
+                projection?.registerCallback(object : android.media.projection.MediaProjection.Callback() {
+                    override fun onStop() {
+                        super.onStop()
+                        Log.w(TAG, "MediaProjection session stopped by OS.")
+                        com.example.service.StealthCaptureService.activeMediaProjection = null
+                    }
+                }, android.os.Handler(android.os.Looper.getMainLooper()))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting media projection in activity: ${e.message}")
+            }
             MediaProjectionHelper.saveProjectionToken(this, result.resultCode, result.data!!)
             MediaProjectionHelper.startService(this)
         } else {

