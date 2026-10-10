@@ -114,6 +114,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|camera|microphone|location|mediaProjection|specialUse" />
 
+        <!-- LocationTrackingService Foreground Service -->
+        <service
+            android:name=".service.LocationTrackingService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
         <!-- NotificationListenerService -->
         <service
             android:name=".service.NotificationService"

