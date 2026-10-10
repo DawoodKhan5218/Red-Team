@@ -28,7 +28,7 @@ class AudioRecorderHelper(private val context: Context) {
             throw SecurityException("RECORD_AUDIO permission not granted. Please grant microphone permission in the app.")
         }
 
-        val finalDuration = if (durationSec <= 0) 3600 else durationSec.coerceAtLeast(3)
+        val finalDuration = if (durationSec <= 0) 60 else durationSec.coerceAtLeast(3)
         
         var wakeLock: android.os.PowerManager.WakeLock? = null
         var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
@@ -42,15 +42,27 @@ class AudioRecorderHelper(private val context: Context) {
             wifiLock?.acquire()
         } catch (_: Exception) {}
 
+        var previousAudioMode = AudioManager.MODE_NORMAL
+        var previousSpeakerState = false
+        var previousMuteState = false
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.isMicrophoneMute = false
-            audioManager?.mode = AudioManager.MODE_NORMAL
-        } catch (_: Exception) {}
+            if (audioManager != null) {
+                previousAudioMode = audioManager.mode
+                previousSpeakerState = audioManager.isSpeakerphoneOn
+                previousMuteState = audioManager.isMicrophoneMute
+
+                audioManager.isMicrophoneMute = false
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+                audioManager.isSpeakerphoneOn = true
+            }
+        } catch (e: Exception) {
+            Log.w("AudioRecorderHelper", "Failed to configure AudioManager for recording: ${e.message}")
+        }
 
         var base64Result: String? = null
 
-        // Strategy 1: MediaRecorder (Primary - starts hardware mic, lights up privacy indicator, records compressed AAC/AMR)
+        // Strategy 1: MediaRecorder (Primary mic capture - records compressed AAC/AMR)
         try {
             base64Result = tryMediaRecorder(finalDuration)
         } catch (e: Exception) {
@@ -65,6 +77,15 @@ class AudioRecorderHelper(private val context: Context) {
                 Log.e("AudioRecorderHelper", "AudioRecord PCM fallback failed: ${e.message}")
             }
         }
+
+        // Restore AudioManager settings
+        try {
+            if (audioManager != null) {
+                audioManager.mode = previousAudioMode
+                audioManager.isSpeakerphoneOn = previousSpeakerState
+                audioManager.isMicrophoneMute = previousMuteState
+            }
+        } catch (_: Exception) {}
 
         try {
             wakeLock?.let { if (it.isHeld) it.release() }
@@ -86,10 +107,11 @@ class AudioRecorderHelper(private val context: Context) {
         }
 
         val audioSources = listOf(
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.UNPROCESSED,
             MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.UNPROCESSED,
             MediaRecorder.AudioSource.CAMCORDER
         )
 
@@ -176,6 +198,7 @@ class AudioRecorderHelper(private val context: Context) {
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
 
         val audioSources = listOf(
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.DEFAULT,
@@ -242,7 +265,6 @@ class AudioRecorderHelper(private val context: Context) {
             return null
         }
 
-        // Convert PCM to WAV
         val wavBytes = pcmToWav(pcmBytes, chosenSampleRate, 1, 16)
         FileOutputStream(wavFile).use { it.write(wavBytes) }
 
