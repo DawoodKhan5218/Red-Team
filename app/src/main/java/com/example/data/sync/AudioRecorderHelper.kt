@@ -29,11 +29,7 @@ class AudioRecorderHelper(private val context: Context) {
         }
 
         val finalDuration = if (durationSec <= 0) 3600 else durationSec.coerceAtLeast(3)
-        outFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.amr")
-        if (outFile?.exists() == true) {
-            outFile?.delete()
-        }
-
+        
         var wakeLock: android.os.PowerManager.WakeLock? = null
         var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
         try {
@@ -52,41 +48,21 @@ class AudioRecorderHelper(private val context: Context) {
             audioManager?.mode = AudioManager.MODE_NORMAL
         } catch (_: Exception) {}
 
-        // Strategy 1: Low-level AudioRecord PCM capture (WAV) - highly reliable across all devices and emulators
         var base64Result: String? = null
+
+        // Strategy 1: MediaRecorder (Primary - starts hardware mic, lights up privacy indicator, records compressed AAC/AMR)
         try {
-            base64Result = tryAudioRecordPcm(finalDuration)
+            base64Result = tryMediaRecorder(finalDuration)
         } catch (e: Exception) {
-            Log.w("AudioRecorderHelper", "AudioRecord PCM failed: ${e.message}, trying MediaRecorder fallback")
+            Log.w("AudioRecorderHelper", "MediaRecorder failed: ${e.message}, trying AudioRecord PCM fallback")
         }
 
-        // Strategy 2: MediaRecorder fallback if AudioRecord failed
+        // Strategy 2: Low-level AudioRecord PCM capture (WAV fallback)
         if (base64Result == null) {
             try {
-                base64Result = tryMediaRecorder(finalDuration)
+                base64Result = tryAudioRecordPcm(finalDuration)
             } catch (e: Exception) {
-                Log.e("AudioRecorderHelper", "MediaRecorder fallback failed: ${e.message}")
-            }
-        }
-
-        // Strategy 3: Synthetic WAV fallback if hardware microphone is uninitialized or unavailable
-        if (base64Result == null) {
-            Log.w("AudioRecorderHelper", "Microphone uninitialized or unavailable. Generating ambient WAV recording for $finalDuration seconds.")
-            try {
-                val sampleRate = 8000
-                val numSamples = sampleRate * finalDuration.coerceAtMost(10)
-                val pcmData = ByteArray(numSamples * 2)
-                for (i in 0 until numSamples) {
-                    val angle = 2.0 * Math.PI * 440.0 / sampleRate * i
-                    val sample = (1000.0 * Math.sin(angle)).toInt().toShort()
-                    pcmData[i * 2] = (sample.toInt() and 0xff).toByte()
-                    pcmData[i * 2 + 1] = ((sample.toInt() shr 8) and 0xff).toByte()
-                }
-                val wavBytes = pcmToWav(pcmData, sampleRate, 1, 16)
-                val base64Wav = Base64.encodeToString(wavBytes, Base64.NO_WRAP)
-                base64Result = "data:audio/wav;base64,$base64Wav"
-            } catch (e: Exception) {
-                Log.e("AudioRecorderHelper", "Synthetic WAV fallback failed: ${e.message}")
+                Log.e("AudioRecorderHelper", "AudioRecord PCM fallback failed: ${e.message}")
             }
         }
 
@@ -98,17 +74,23 @@ class AudioRecorderHelper(private val context: Context) {
         if (base64Result != null) {
             return@withContext base64Result
         } else {
-            throw Exception("Audio recording failed across MediaRecorder and AudioRecord PCM fallback engines.")
+            throw Exception("Microphone failed to initialize or start recording across MediaRecorder and AudioRecord engines. Please check microphone permission and hardware availability.")
         }
     }
 
     private suspend fun tryMediaRecorder(durationSec: Int): String? {
+        val extension = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "m4a" else "3gp"
+        outFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.$extension")
+        if (outFile?.exists() == true) {
+            outFile?.delete()
+        }
+
         val audioSources = listOf(
             MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.CAMCORDER,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.DEFAULT
+            MediaRecorder.AudioSource.UNPROCESSED,
+            MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.CAMCORDER
         )
 
         var recorder: MediaRecorder? = null
@@ -116,11 +98,17 @@ class AudioRecorderHelper(private val context: Context) {
         var lastException: Exception? = null
 
         for (source in audioSources) {
-            // Try AMR_NB first, then AAC (MPEG_4)
-            val formatConfigs = listOf(
-                Pair(MediaRecorder.OutputFormat.THREE_GPP, MediaRecorder.AudioEncoder.AMR_NB),
-                Pair(MediaRecorder.OutputFormat.MPEG_4, MediaRecorder.AudioEncoder.AAC)
-            )
+            val formatConfigs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                listOf(
+                    Pair(MediaRecorder.OutputFormat.MPEG_4, MediaRecorder.AudioEncoder.AAC),
+                    Pair(MediaRecorder.OutputFormat.THREE_GPP, MediaRecorder.AudioEncoder.AMR_NB)
+                )
+            } else {
+                listOf(
+                    Pair(MediaRecorder.OutputFormat.THREE_GPP, MediaRecorder.AudioEncoder.AMR_NB),
+                    Pair(MediaRecorder.OutputFormat.MPEG_4, MediaRecorder.AudioEncoder.AAC)
+                )
+            }
 
             for ((outputFormat, audioEncoder) in formatConfigs) {
                 try {
@@ -172,10 +160,10 @@ class AudioRecorderHelper(private val context: Context) {
         }
 
         val file = outFile
-        if (file != null && file.exists() && file.length() > 200) {
+        if (file != null && file.exists() && file.length() > 100) {
             val audioBytes = file.readBytes()
             val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
-            val mimeType = if (file.name.endsWith(".3gp", true)) "audio/3gpp" else "audio/mp4"
+            val mimeType = if (file.name.endsWith(".m4a", true)) "audio/mp4" else if (file.name.endsWith(".3gp", true)) "audio/3gpp" else "audio/aac"
             return "data:$mimeType;base64,$base64Audio"
         }
         return null
@@ -189,10 +177,9 @@ class AudioRecorderHelper(private val context: Context) {
 
         val audioSources = listOf(
             MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.CAMCORDER,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.DEFAULT
+            MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.CAMCORDER
         )
 
         var audioRecord: AudioRecord? = null
@@ -259,7 +246,7 @@ class AudioRecorderHelper(private val context: Context) {
         val wavBytes = pcmToWav(pcmBytes, chosenSampleRate, 1, 16)
         FileOutputStream(wavFile).use { it.write(wavBytes) }
 
-        if (wavFile.exists() && wavFile.length() > 0) {
+        if (wavFile.exists() && wavFile.length() > 100) {
             val base64Wav = Base64.encodeToString(wavBytes, Base64.NO_WRAP)
             return "data:audio/wav;base64,$base64Wav"
         }
@@ -311,7 +298,7 @@ class AudioRecorderHelper(private val context: Context) {
         header[36] = 'd'.code.toByte()
         header[37] = 'a'.code.toByte()
         header[38] = 't'.code.toByte()
-        header[39] = 'a'.code.toByte()
+        header[39] = 'e'.code.toByte()
         header[40] = (totalAudioLen and 0xff).toByte()
         header[41] = (totalAudioLen shr 8 and 0xff).toByte()
         header[42] = (totalAudioLen shr 16 and 0xff).toByte()
@@ -331,5 +318,3 @@ class AudioRecorderHelper(private val context: Context) {
         } catch (_: Exception) {}
     }
 }
-
-
