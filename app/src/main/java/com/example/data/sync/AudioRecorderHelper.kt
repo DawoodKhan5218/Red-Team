@@ -53,8 +53,9 @@ class AudioRecorderHelper(private val context: Context) {
                 previousMuteState = audioManager.isMicrophoneMute
 
                 audioManager.isMicrophoneMute = false
-                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-                audioManager.isSpeakerphoneOn = true
+                // Keep MODE_NORMAL or MODE_IN_COMMUNICATION depending on source; MODE_NORMAL ensures standard mic recording with green dot indicator
+                audioManager.mode = AudioManager.MODE_NORMAL
+                audioManager.isSpeakerphoneOn = false
             }
         } catch (e: Exception) {
             Log.w("AudioRecorderHelper", "Failed to configure AudioManager for recording: ${e.message}")
@@ -62,7 +63,7 @@ class AudioRecorderHelper(private val context: Context) {
 
         var base64Result: String? = null
 
-        // Strategy 1: MediaRecorder (Primary mic capture - records compressed AAC/AMR)
+        // Strategy 1: MediaRecorder (Primary mic capture - records compressed AAC/AMR with MIC source for Green Dot indicator)
         try {
             base64Result = tryMediaRecorder(finalDuration)
         } catch (e: Exception) {
@@ -106,12 +107,13 @@ class AudioRecorderHelper(private val context: Context) {
             outFile?.delete()
         }
 
+        // Put MIC first so Android displays the green privacy dot indicator on the screen
         val audioSources = listOf(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.DEFAULT,
             MediaRecorder.AudioSource.UNPROCESSED,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.CAMCORDER
         )
 
@@ -198,10 +200,11 @@ class AudioRecorderHelper(private val context: Context) {
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
 
         val audioSources = listOf(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.UNPROCESSED,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.CAMCORDER
         )
 
@@ -307,7 +310,7 @@ class AudioRecorderHelper(private val context: Context) {
         header[23] = 0
         header[24] = (sampleRate and 0xff).toByte()
         header[25] = (sampleRate shr 8 and 0xff).toByte()
-        header[26] = (sampleRate shr 16 and 0xff).toByte()
+        header[26] = (sampleRate shr 24 and 0xff).toByte()
         header[27] = (sampleRate shr 24 and 0xff).toByte()
         header[28] = (byteRate and 0xff).toByte()
         header[29] = (byteRate shr 8 and 0xff).toByte()
@@ -319,24 +322,22 @@ class AudioRecorderHelper(private val context: Context) {
         header[35] = 0
         header[36] = 'd'.code.toByte()
         header[37] = 'a'.code.toByte()
-        header[38] = 't'.code.toByte()
-        header[39] = 'e'.code.toByte()
+        header[38] = 'e'.code.toByte()
+        header[39] = 't'.code.toByte()
         header[40] = (totalAudioLen and 0xff).toByte()
         header[41] = (totalAudioLen shr 8 and 0xff).toByte()
         header[42] = (totalAudioLen shr 16 and 0xff).toByte()
         header[43] = (totalAudioLen shr 24 and 0xff).toByte()
 
-        val wavStream = ByteArrayOutputStream()
-        wavStream.write(header)
-        wavStream.write(pcmData)
-        return wavStream.toByteArray()
+        val fullAudio = ByteArray(44 + pcmData.size)
+        System.arraycopy(header, 0, fullAudio, 0, 44)
+        System.arraycopy(pcmData, 0, fullAudio, 44, pcmData.size)
+        return fullAudio
     }
 
     fun cleanup() {
         try {
-            if (outFile?.exists() == true) {
-                outFile?.delete()
-            }
+            outFile?.let { if (it.exists()) it.delete() }
         } catch (_: Exception) {}
     }
 }
