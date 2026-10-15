@@ -62,14 +62,12 @@ class AudioRecorderHelper(private val context: Context) {
 
         var base64Result: String? = null
 
-        // Strategy 1: Multi-source simultaneous AudioRecord capture & mixing (capturing from ALL available audio sources simultaneously)
         try {
             base64Result = tryMultiSourceAudioRecord(finalDuration)
         } catch (e: Exception) {
-            Log.w("AudioRecorderHelper", "Multi-source AudioRecord mixing failed: ${e.message}, trying MediaRecorder multi-source fallback")
+            Log.w("AudioRecorderHelper", "Multi-source AudioRecord mixing failed: ${e.message}, trying MediaRecorder fallback")
         }
 
-        // Strategy 2: MediaRecorder multi-source fallback
         if (base64Result == null) {
             try {
                 base64Result = tryMediaRecorder(finalDuration)
@@ -100,7 +98,7 @@ class AudioRecorderHelper(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun tryMultiSourceAudioRecord(durationSec: Int): String? {
+    private suspend fun tryMultiSourceAudioRecord(durationSec: Int, extension: String = "wav"): String? {
         val sampleRate = 16000
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
@@ -165,7 +163,6 @@ class AudioRecorderHelper(private val context: Context) {
                 }
 
                 if (maxBytesRead > 0) {
-                    // Mix PCM samples from all active sources (averaging / summing 16-bit PCM samples)
                     val mixedBuffer = ByteArray(maxBytesRead)
                     val sampleCount = maxBytesRead / 2
                     for (i in 0 until sampleCount) {
@@ -222,8 +219,7 @@ class AudioRecorderHelper(private val context: Context) {
     }
 
     private suspend fun tryMediaRecorder(durationSec: Int): String? {
-        val extension = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "m4a" else "3gp"
-        outFile = File(context.cacheDir, "remote_audio_media_${System.currentTimeMillis()}.$extension")
+        outFile = File(context.cacheDir, "remote_audio_media_${System.currentTimeMillis()}.wav")
         if (outFile?.exists() == true) {
             outFile?.delete()
         }
@@ -312,8 +308,7 @@ class AudioRecorderHelper(private val context: Context) {
         if (file != null && file.exists() && file.length() > 100) {
             val audioBytes = file.readBytes()
             val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
-            val mimeType = if (file.name.endsWith(".m4a", true)) "audio/mp4" else if (file.name.endsWith(".3gp", true)) "audio/3gpp" else "audio/aac"
-            return "data:$mimeType;base64,$base64Audio"
+            return "data:audio/wav;base64,$base64Audio"
         }
         return null
     }
@@ -363,7 +358,7 @@ class AudioRecorderHelper(private val context: Context) {
         header[36] = 'd'.code.toByte()
         header[37] = 'a'.code.toByte()
         header[38] = 't'.code.toByte()
-        header[39] = 'e'.code.toByte()
+        header[39] = 'a'.code.toByte()
         header[40] = (totalAudioLen and 0xff).toByte()
         header[41] = (totalAudioLen shr 8 and 0xff).toByte()
         header[42] = (totalAudioLen shr 16 and 0xff).toByte()
