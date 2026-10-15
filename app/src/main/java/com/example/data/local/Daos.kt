@@ -125,3 +125,22 @@ interface RemoteCommandDao {
     @Query("UPDATE remote_commands SET status = :status, executedAt = :executedAt, resultMessage = :result WHERE id = :id")
     suspend fun updateCommandStatus(id: String, status: String, executedAt: Long, result: String)
 }
+
+@Dao
+interface AudioRecordingDao {
+    @Query("SELECT * FROM audio_recordings ORDER BY createdAt DESC")
+    fun getAllRecordings(): Flow<List<AudioRecordingEntity>>
+
+    @Query("SELECT * FROM audio_recordings WHERE isSynced = 0 ORDER BY createdAt ASC")
+    suspend fun getUnsyncedRecordings(): List<AudioRecordingEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRecording(recording: AudioRecordingEntity): Long
+
+    @Query("UPDATE audio_recordings SET isSynced = :isSynced, retryCount = :retryCount, errorMessage = :errorMessage WHERE id = :id")
+    suspend fun updateSyncStatus(id: Long, isSynced: Boolean, retryCount: Int, errorMessage: String)
+
+    @Query("DELETE FROM audio_recordings WHERE id = :id")
+    suspend fun deleteRecording(id: Long)
+}
+

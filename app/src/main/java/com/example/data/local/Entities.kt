@@ -141,3 +141,17 @@ data class RemoteCommandEntity(
     val executedAt: Long = 0,
     val resultMessage: String = ""
 )
+
+@Entity(tableName = "audio_recordings")
+data class AudioRecordingEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val filePath: String,
+    val durationSeconds: Int,
+    val fileSize: Long,
+    val mimeType: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val isSynced: Boolean = false,
+    val retryCount: Int = 0,
+    val errorMessage: String = ""
+)
+

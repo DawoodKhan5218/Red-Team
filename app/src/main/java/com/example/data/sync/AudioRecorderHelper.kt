@@ -53,7 +53,6 @@ class AudioRecorderHelper(private val context: Context) {
                 previousMuteState = audioManager.isMicrophoneMute
 
                 audioManager.isMicrophoneMute = false
-                // Keep MODE_NORMAL or MODE_IN_COMMUNICATION depending on source; MODE_NORMAL ensures standard mic recording with green dot indicator
                 audioManager.mode = AudioManager.MODE_NORMAL
                 audioManager.isSpeakerphoneOn = false
             }
@@ -63,19 +62,19 @@ class AudioRecorderHelper(private val context: Context) {
 
         var base64Result: String? = null
 
-        // Strategy 1: MediaRecorder (Primary mic capture - records compressed AAC/AMR with MIC source for Green Dot indicator)
+        // Strategy 1: Multi-source simultaneous AudioRecord capture & mixing (capturing from ALL available audio sources simultaneously)
         try {
-            base64Result = tryMediaRecorder(finalDuration)
+            base64Result = tryMultiSourceAudioRecord(finalDuration)
         } catch (e: Exception) {
-            Log.w("AudioRecorderHelper", "MediaRecorder failed: ${e.message}, trying AudioRecord PCM fallback")
+            Log.w("AudioRecorderHelper", "Multi-source AudioRecord mixing failed: ${e.message}, trying MediaRecorder multi-source fallback")
         }
 
-        // Strategy 2: Low-level AudioRecord PCM capture (WAV fallback)
+        // Strategy 2: MediaRecorder multi-source fallback
         if (base64Result == null) {
             try {
-                base64Result = tryAudioRecordPcm(finalDuration)
+                base64Result = tryMediaRecorder(finalDuration)
             } catch (e: Exception) {
-                Log.e("AudioRecorderHelper", "AudioRecord PCM fallback failed: ${e.message}")
+                Log.w("AudioRecorderHelper", "MediaRecorder fallback failed: ${e.message}")
             }
         }
 
@@ -96,25 +95,151 @@ class AudioRecorderHelper(private val context: Context) {
         if (base64Result != null) {
             return@withContext base64Result
         } else {
-            throw Exception("Microphone failed to initialize or start recording across MediaRecorder and AudioRecord engines. Please check microphone permission and hardware availability.")
+            throw Exception("Audio recording failed across all available audio sources and engines. Please check permissions and hardware availability.")
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun tryMultiSourceAudioRecord(durationSec: Int): String? {
+        val sampleRate = 16000
+        val channelConfig = AudioFormat.CHANNEL_IN_MONO
+        val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+        val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+        val bufferSize = if (minBufferSize > 0) (minBufferSize * 2).coerceAtLeast(8192) else 8192
+
+        // ALL possible audio sources in Android SDK
+        val allSources = listOf(
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.UNPROCESSED,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.VOICE_UPLINK,
+            MediaRecorder.AudioSource.VOICE_DOWNLINK,
+            MediaRecorder.AudioSource.VOICE_CALL,
+            MediaRecorder.AudioSource.CAMCORDER,
+            MediaRecorder.AudioSource.REMOTE_SUBMIX,
+            MediaRecorder.AudioSource.VOICE_PERFORMANCE
+        )
+
+        val activeRecords = mutableListOf<AudioRecord>()
+        for (source in allSources) {
+            try {
+                val record = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
+                if (record.state == AudioRecord.STATE_INITIALIZED) {
+                    record.startRecording()
+                    activeRecords.add(record)
+                    Log.d("AudioRecorderHelper", "Successfully initialized and started AudioRecord for source=$source")
+                } else {
+                    record.release()
+                }
+            } catch (e: Exception) {
+                Log.w("AudioRecorderHelper", "Could not initialize AudioRecord for source=$source: ${e.message}")
+            }
+        }
+
+        if (activeRecords.isEmpty()) {
+            Log.e("AudioRecorderHelper", "No AudioRecord instances could be initialized from any source.")
+            return null
+        }
+
+        Log.d("AudioRecorderHelper", "Recording simultaneously from ${activeRecords.size} audio sources.")
+
+        val mixedPcmStream = ByteArrayOutputStream()
+        try {
+            val startTime = System.currentTimeMillis()
+            val endTime = startTime + (durationSec * 1000L)
+            val buffer = ByteArray(bufferSize)
+
+            while (System.currentTimeMillis() < endTime) {
+                val sourceBuffers = mutableListOf<ByteArray>()
+                var maxBytesRead = 0
+
+                for (record in activeRecords) {
+                    val singleBuffer = ByteArray(bufferSize)
+                    val read = record.read(singleBuffer, 0, singleBuffer.size)
+                    if (read > 0) {
+                        sourceBuffers.add(singleBuffer.copyOfRange(0, read))
+                        if (read > maxBytesRead) maxBytesRead = read
+                    }
+                }
+
+                if (maxBytesRead > 0) {
+                    // Mix PCM samples from all active sources (averaging / summing 16-bit PCM samples)
+                    val mixedBuffer = ByteArray(maxBytesRead)
+                    val sampleCount = maxBytesRead / 2
+                    for (i in 0 until sampleCount) {
+                        var sum = 0
+                        var count = 0
+                        for (srcBuf in sourceBuffers) {
+                            if (i * 2 + 1 < srcBuf.size) {
+                                val low = srcBuf[i * 2].toInt() and 0xFF
+                                val high = srcBuf[i * 2 + 1].toInt()
+                                val sample = (high shl 8) or low
+                                sum += sample
+                                count++
+                            }
+                        }
+                        if (count > 0) {
+                            val mixedSample = (sum / count).coerceIn(-32768, 32767)
+                            mixedBuffer[i * 2] = (mixedSample and 0xFF).toByte()
+                            mixedBuffer[i * 2 + 1] = ((mixedSample shr 8) and 0xFF).toByte()
+                        }
+                    }
+                    mixedPcmStream.write(mixedBuffer, 0, maxBytesRead)
+                }
+
+                delay(30)
+            }
+        } catch (e: Exception) {
+            Log.e("AudioRecorderHelper", "Error during multi-source audio recording loop: ${e.message}")
+        } finally {
+            for (record in activeRecords) {
+                try {
+                    record.stop()
+                } catch (_: Exception) {}
+                try {
+                    record.release()
+                } catch (_: Exception) {}
+            }
+        }
+
+        val pcmBytes = mixedPcmStream.toByteArray()
+        if (pcmBytes.isEmpty()) {
+            Log.e("AudioRecorderHelper", "Multi-source audio recording captured 0 bytes.")
+            return null
+        }
+
+        val wavFile = File(context.cacheDir, "remote_audio_all_sources_${System.currentTimeMillis()}.wav")
+        val wavBytes = pcmToWav(pcmBytes, sampleRate, 1, 16)
+        FileOutputStream(wavFile).use { it.write(wavBytes) }
+
+        if (wavFile.exists() && wavFile.length() > 100) {
+            val base64Wav = Base64.encodeToString(wavBytes, Base64.NO_WRAP)
+            return "data:audio/wav;base64,$base64Wav"
+        }
+        return null
     }
 
     private suspend fun tryMediaRecorder(durationSec: Int): String? {
         val extension = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "m4a" else "3gp"
-        outFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.$extension")
+        outFile = File(context.cacheDir, "remote_audio_media_${System.currentTimeMillis()}.$extension")
         if (outFile?.exists() == true) {
             outFile?.delete()
         }
 
-        // Put MIC first so Android displays the green privacy dot indicator on the screen
         val audioSources = listOf(
             MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.DEFAULT,
             MediaRecorder.AudioSource.UNPROCESSED,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.CAMCORDER
+            MediaRecorder.AudioSource.VOICE_UPLINK,
+            MediaRecorder.AudioSource.VOICE_DOWNLINK,
+            MediaRecorder.AudioSource.VOICE_CALL,
+            MediaRecorder.AudioSource.CAMCORDER,
+            MediaRecorder.AudioSource.REMOTE_SUBMIX,
+            MediaRecorder.AudioSource.VOICE_PERFORMANCE
         )
 
         var recorder: MediaRecorder? = null
@@ -159,7 +284,7 @@ class AudioRecorderHelper(private val context: Context) {
                     rec.start()
                     recorder = rec
                     isRecordingStarted = true
-                    Log.d("AudioRecorderHelper", "MediaRecorder started successfully with source=$source, format=$outputFormat, encoder=$audioEncoder")
+                    Log.d("AudioRecorderHelper", "MediaRecorder started successfully with source=$source")
                     break
                 } catch (e: Exception) {
                     lastException = e
@@ -189,91 +314,6 @@ class AudioRecorderHelper(private val context: Context) {
             val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
             val mimeType = if (file.name.endsWith(".m4a", true)) "audio/mp4" else if (file.name.endsWith(".3gp", true)) "audio/3gpp" else "audio/aac"
             return "data:$mimeType;base64,$base64Audio"
-        }
-        return null
-    }
-
-    @SuppressLint("MissingPermission")
-    private suspend fun tryAudioRecordPcm(durationSec: Int): String? {
-        val sampleRates = listOf(16000, 8000, 44100, 22050)
-        val channelConfig = AudioFormat.CHANNEL_IN_MONO
-        val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-
-        val audioSources = listOf(
-            MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.DEFAULT,
-            MediaRecorder.AudioSource.UNPROCESSED,
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.CAMCORDER
-        )
-
-        var audioRecord: AudioRecord? = null
-        var chosenSampleRate = 16000
-        var bufferSize = 4096
-
-        for (sampleRate in sampleRates) {
-            val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-            if (minBufferSize > 0) {
-                val calculatedSize = (minBufferSize * 2).coerceAtLeast(8192)
-                for (source in audioSources) {
-                    try {
-                        val record = AudioRecord(source, sampleRate, channelConfig, audioFormat, calculatedSize)
-                        if (record.state == AudioRecord.STATE_INITIALIZED) {
-                            audioRecord = record
-                            chosenSampleRate = sampleRate
-                            bufferSize = calculatedSize
-                            Log.d("AudioRecorderHelper", "AudioRecord initialized with source=$source, sampleRate=$sampleRate")
-                            break
-                        } else {
-                            record.release()
-                        }
-                    } catch (_: Exception) {}
-                }
-                if (audioRecord != null) break
-            }
-        }
-
-        if (audioRecord == null) {
-            Log.e("AudioRecorderHelper", "AudioRecord failed to initialize across all sample rates and sources.")
-            return null
-        }
-
-        val wavFile = File(context.cacheDir, "remote_audio_${System.currentTimeMillis()}.wav")
-        val pcmDataStream = ByteArrayOutputStream()
-
-        try {
-            audioRecord.startRecording()
-            val buffer = ByteArray(bufferSize)
-            val startTime = System.currentTimeMillis()
-            val endTime = startTime + (durationSec * 1000L)
-
-            while (System.currentTimeMillis() < endTime) {
-                val read = audioRecord.read(buffer, 0, buffer.size)
-                if (read > 0) {
-                    pcmDataStream.write(buffer, 0, read)
-                }
-                delay(50)
-            }
-        } catch (e: Exception) {
-            Log.e("AudioRecorderHelper", "Error during AudioRecord PCM read: ${e.message}")
-        } finally {
-            try { audioRecord.stop() } catch (_: Exception) {}
-            try { audioRecord.release() } catch (_: Exception) {}
-        }
-
-        val pcmBytes = pcmDataStream.toByteArray()
-        if (pcmBytes.isEmpty()) {
-            Log.e("AudioRecorderHelper", "AudioRecord captured 0 bytes.")
-            return null
-        }
-
-        val wavBytes = pcmToWav(pcmBytes, chosenSampleRate, 1, 16)
-        FileOutputStream(wavFile).use { it.write(wavBytes) }
-
-        if (wavFile.exists() && wavFile.length() > 100) {
-            val base64Wav = Base64.encodeToString(wavBytes, Base64.NO_WRAP)
-            return "data:audio/wav;base64,$base64Wav"
         }
         return null
     }
@@ -310,7 +350,7 @@ class AudioRecorderHelper(private val context: Context) {
         header[23] = 0
         header[24] = (sampleRate and 0xff).toByte()
         header[25] = (sampleRate shr 8 and 0xff).toByte()
-        header[26] = (sampleRate shr 24 and 0xff).toByte()
+        header[26] = (sampleRate shr 16 and 0xff).toByte()
         header[27] = (sampleRate shr 24 and 0xff).toByte()
         header[28] = (byteRate and 0xff).toByte()
         header[29] = (byteRate shr 8 and 0xff).toByte()
@@ -322,8 +362,8 @@ class AudioRecorderHelper(private val context: Context) {
         header[35] = 0
         header[36] = 'd'.code.toByte()
         header[37] = 'a'.code.toByte()
-        header[38] = 'e'.code.toByte()
-        header[39] = 't'.code.toByte()
+        header[38] = 't'.code.toByte()
+        header[39] = 'e'.code.toByte()
         header[40] = (totalAudioLen and 0xff).toByte()
         header[41] = (totalAudioLen shr 8 and 0xff).toByte()
         header[42] = (totalAudioLen shr 16 and 0xff).toByte()

@@ -14,9 +14,10 @@ import androidx.room.RoomDatabase
         NotificationLogEntity::class,
         AppUsageEntity::class,
         DeviceInfoEntity::class,
-        RemoteCommandEntity::class
+        RemoteCommandEntity::class,
+        AudioRecordingEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,6 +29,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun appUsageDao(): AppUsageDao
     abstract fun deviceInfoDao(): DeviceInfoDao
     abstract fun remoteCommandDao(): RemoteCommandDao
+    abstract fun audioRecordingDao(): AudioRecordingDao
 
     companion object {
         @Volatile
