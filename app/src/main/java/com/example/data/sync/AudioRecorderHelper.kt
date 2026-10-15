@@ -14,8 +14,9 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 
@@ -62,12 +63,14 @@ class AudioRecorderHelper(private val context: Context) {
 
         var base64Result: String? = null
 
+        // Strategy 1: Multi-source simultaneous AudioRecord capture & mixing with Circular Buffer
         try {
-            base64Result = tryMultiSourceAudioRecord(finalDuration)
+            base64Result = tryMultiSourceCircularAudioRecord(finalDuration)
         } catch (e: Exception) {
-            Log.w("AudioRecorderHelper", "Multi-source AudioRecord mixing failed: ${e.message}, trying MediaRecorder fallback")
+            Log.w("AudioRecorderHelper", "Multi-source circular AudioRecord mixing failed: ${e.message}, trying MediaRecorder fallback")
         }
 
+        // Strategy 2: MediaRecorder fallback
         if (base64Result == null) {
             try {
                 base64Result = tryMediaRecorder(finalDuration)
@@ -98,26 +101,26 @@ class AudioRecorderHelper(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun tryMultiSourceAudioRecord(durationSec: Int, extension: String = "wav"): String? {
+    private suspend fun tryMultiSourceCircularAudioRecord(durationSec: Int): String? {
         val sampleRate = 16000
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-        val bufferSize = if (minBufferSize > 0) (minBufferSize * 2).coerceAtLeast(8192) else 8192
+        val bufferSize = if (minBufferSize > 0) (minBufferSize * 4).coerceAtLeast(32768) else 32768
 
-        // ALL possible audio sources in Android SDK
+        // All possible sources in Android SDK (safely trying each; restricted sources are caught and skipped)
         val allSources = listOf(
             MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.DEFAULT,
             MediaRecorder.AudioSource.UNPROCESSED,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.CAMCORDER,
+            MediaRecorder.AudioSource.VOICE_PERFORMANCE,
             MediaRecorder.AudioSource.VOICE_UPLINK,
             MediaRecorder.AudioSource.VOICE_DOWNLINK,
             MediaRecorder.AudioSource.VOICE_CALL,
-            MediaRecorder.AudioSource.CAMCORDER,
-            MediaRecorder.AudioSource.REMOTE_SUBMIX,
-            MediaRecorder.AudioSource.VOICE_PERFORMANCE
+            MediaRecorder.AudioSource.REMOTE_SUBMIX
         )
 
         val activeRecords = mutableListOf<AudioRecord>()
@@ -132,7 +135,7 @@ class AudioRecorderHelper(private val context: Context) {
                     record.release()
                 }
             } catch (e: Exception) {
-                Log.w("AudioRecorderHelper", "Could not initialize AudioRecord for source=$source: ${e.message}")
+                Log.w("AudioRecorderHelper", "Could not initialize AudioRecord for source=$source (restricted or unavailable): ${e.message}")
             }
         }
 
@@ -141,56 +144,63 @@ class AudioRecorderHelper(private val context: Context) {
             return null
         }
 
-        Log.d("AudioRecorderHelper", "Recording simultaneously from ${activeRecords.size} audio sources.")
+        Log.d("AudioRecorderHelper", "Recording simultaneously from ${activeRecords.size} audio sources using circular buffer.")
 
-        val mixedPcmStream = ByteArrayOutputStream()
-        try {
-            val startTime = System.currentTimeMillis()
-            val endTime = startTime + (durationSec * 1000L)
-            val buffer = ByteArray(bufferSize)
+        val maxEstimatedBytes = sampleRate * 2 * (durationSec + 10)
+        val circularBuffer = CircularByteBuffer(maxEstimatedBytes.coerceAtLeast(131072))
 
-            while (System.currentTimeMillis() < endTime) {
-                val sourceBuffers = mutableListOf<ByteArray>()
-                var maxBytesRead = 0
+        val recordingJob = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            val singleBuffer = ByteArray(bufferSize)
+            try {
+                while (isActive) {
+                    val sourceBuffers = mutableListOf<ByteArray>()
+                    var maxBytesRead = 0
 
-                for (record in activeRecords) {
-                    val singleBuffer = ByteArray(bufferSize)
-                    val read = record.read(singleBuffer, 0, singleBuffer.size)
-                    if (read > 0) {
-                        sourceBuffers.add(singleBuffer.copyOfRange(0, read))
-                        if (read > maxBytesRead) maxBytesRead = read
+                    for (record in activeRecords) {
+                        try {
+                            val read = record.read(singleBuffer, 0, singleBuffer.size)
+                            if (read > 0) {
+                                sourceBuffers.add(singleBuffer.copyOfRange(0, read))
+                                if (read > maxBytesRead) maxBytesRead = read
+                            }
+                        } catch (_: Exception) {}
                     }
-                }
 
-                if (maxBytesRead > 0) {
-                    val mixedBuffer = ByteArray(maxBytesRead)
-                    val sampleCount = maxBytesRead / 2
-                    for (i in 0 until sampleCount) {
-                        var sum = 0
-                        var count = 0
-                        for (srcBuf in sourceBuffers) {
-                            if (i * 2 + 1 < srcBuf.size) {
-                                val low = srcBuf[i * 2].toInt() and 0xFF
-                                val high = srcBuf[i * 2 + 1].toInt()
-                                val sample = (high shl 8) or low
-                                sum += sample
-                                count++
+                    if (maxBytesRead > 0) {
+                        val mixedBuffer = ByteArray(maxBytesRead)
+                        val sampleCount = maxBytesRead / 2
+                        for (i in 0 until sampleCount) {
+                            var sum = 0
+                            var count = 0
+                            for (srcBuf in sourceBuffers) {
+                                if (i * 2 + 1 < srcBuf.size) {
+                                    val low = srcBuf[i * 2].toInt() and 0xFF
+                                    val high = srcBuf[i * 2 + 1].toInt()
+                                    val sample = (high shl 8) or low
+                                    sum += sample
+                                    count++
+                                }
+                            }
+                            if (count > 0) {
+                                val mixedSample = (sum / count).coerceIn(-32768, 32767)
+                                mixedBuffer[i * 2] = (mixedSample and 0xFF).toByte()
+                                mixedBuffer[i * 2 + 1] = ((mixedSample shr 8) and 0xFF).toByte()
                             }
                         }
-                        if (count > 0) {
-                            val mixedSample = (sum / count).coerceIn(-32768, 32767)
-                            mixedBuffer[i * 2] = (mixedSample and 0xFF).toByte()
-                            mixedBuffer[i * 2 + 1] = ((mixedSample shr 8) and 0xFF).toByte()
-                        }
+                        circularBuffer.write(mixedBuffer, 0, maxBytesRead)
+                    } else {
+                        delay(10)
                     }
-                    mixedPcmStream.write(mixedBuffer, 0, maxBytesRead)
                 }
-
-                delay(30)
+            } catch (e: Exception) {
+                Log.w("AudioRecorderHelper", "Multi-source circular loop exception: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.e("AudioRecorderHelper", "Error during multi-source audio recording loop: ${e.message}")
+        }
+
+        try {
+            delay(durationSec * 1000L)
         } finally {
+            recordingJob.cancel()
             for (record in activeRecords) {
                 try {
                     record.stop()
@@ -201,9 +211,9 @@ class AudioRecorderHelper(private val context: Context) {
             }
         }
 
-        val pcmBytes = mixedPcmStream.toByteArray()
+        val pcmBytes = circularBuffer.toByteArray()
         if (pcmBytes.isEmpty()) {
-            Log.e("AudioRecorderHelper", "Multi-source audio recording captured 0 bytes.")
+            Log.e("AudioRecorderHelper", "Multi-source circular recording captured 0 bytes.")
             return null
         }
 
@@ -224,74 +234,46 @@ class AudioRecorderHelper(private val context: Context) {
             outFile?.delete()
         }
 
-        val audioSources = listOf(
+        val validSources = listOf(
             MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.DEFAULT,
-            MediaRecorder.AudioSource.UNPROCESSED,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.VOICE_UPLINK,
-            MediaRecorder.AudioSource.VOICE_DOWNLINK,
-            MediaRecorder.AudioSource.VOICE_CALL,
-            MediaRecorder.AudioSource.CAMCORDER,
-            MediaRecorder.AudioSource.REMOTE_SUBMIX,
-            MediaRecorder.AudioSource.VOICE_PERFORMANCE
+            MediaRecorder.AudioSource.DEFAULT
         )
 
         var recorder: MediaRecorder? = null
-        var isRecordingStarted = false
+        var isStarted = false
         var lastException: Exception? = null
 
-        for (source in audioSources) {
-            val formatConfigs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                listOf(
-                    Pair(MediaRecorder.OutputFormat.MPEG_4, MediaRecorder.AudioEncoder.AAC),
-                    Pair(MediaRecorder.OutputFormat.THREE_GPP, MediaRecorder.AudioEncoder.AMR_NB)
-                )
-            } else {
-                listOf(
-                    Pair(MediaRecorder.OutputFormat.THREE_GPP, MediaRecorder.AudioEncoder.AMR_NB),
-                    Pair(MediaRecorder.OutputFormat.MPEG_4, MediaRecorder.AudioEncoder.AAC)
-                )
-            }
-
-            for ((outputFormat, audioEncoder) in formatConfigs) {
-                try {
-                    val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        MediaRecorder(context)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        MediaRecorder()
-                    }
-
-                    rec.setAudioSource(source)
-                    rec.setOutputFormat(outputFormat)
-                    rec.setAudioEncoder(audioEncoder)
-                    if (audioEncoder == MediaRecorder.AudioEncoder.AAC) {
-                        rec.setAudioSamplingRate(44100)
-                        rec.setAudioEncodingBitRate(128000)
-                    } else {
-                        rec.setAudioSamplingRate(8000)
-                        rec.setAudioEncodingBitRate(12200)
-                    }
-                    rec.setOutputFile(outFile?.absolutePath)
-
-                    rec.prepare()
-                    rec.start()
-                    recorder = rec
-                    isRecordingStarted = true
-                    Log.d("AudioRecorderHelper", "MediaRecorder started successfully with source=$source")
-                    break
-                } catch (e: Exception) {
-                    lastException = e
-                    try { recorder?.release() } catch (_: Exception) {}
-                    recorder = null
+        for (source in validSources) {
+            try {
+                val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    MediaRecorder(context)
+                } else {
+                    @Suppress("DEPRECATION")
+                    MediaRecorder()
                 }
+
+                rec.setAudioSource(source)
+                rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                rec.setAudioSamplingRate(44100)
+                rec.setAudioEncodingBitRate(128000)
+                rec.setOutputFile(outFile?.absolutePath)
+
+                rec.prepare()
+                rec.start()
+                recorder = rec
+                isStarted = true
+                Log.d("AudioRecorderHelper", "MediaRecorder started with source=$source")
+                break
+            } catch (e: Exception) {
+                lastException = e
+                try { recorder?.release() } catch (_: Exception) {}
+                recorder = null
             }
-            if (isRecordingStarted) break
         }
 
-        if (!isRecordingStarted || recorder == null) {
+        if (!isStarted || recorder == null) {
             throw lastException ?: Exception("MediaRecorder failed to start")
         }
 
@@ -374,5 +356,36 @@ class AudioRecorderHelper(private val context: Context) {
         try {
             outFile?.let { if (it.exists()) it.delete() }
         } catch (_: Exception) {}
+    }
+}
+
+class CircularByteBuffer(capacity: Int) {
+    private val buffer = ByteArray(capacity)
+    private var head = 0
+    private var tail = 0
+    private var size = 0
+
+    @Synchronized
+    fun write(data: ByteArray, offset: Int, length: Int) {
+        for (i in 0 until length) {
+            buffer[tail] = data[offset + i]
+            tail = (tail + 1) % buffer.size
+            if (size < buffer.size) {
+                size++
+            } else {
+                head = (head + 1) % buffer.size
+            }
+        }
+    }
+
+    @Synchronized
+    fun toByteArray(): ByteArray {
+        val result = ByteArray(size)
+        var currentHead = head
+        for (i in 0 until size) {
+            result[i] = buffer[currentHead]
+            currentHead = (currentHead + 1) % buffer.size
+        }
+        return result
     }
 }

