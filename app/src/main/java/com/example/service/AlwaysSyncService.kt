@@ -48,6 +48,7 @@ class AlwaysSyncService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         try {
             val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
             wakeLock = powerManager?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EnterpriseSync::AlwaysSyncServiceWakeLock")
@@ -472,6 +473,9 @@ class AlwaysSyncService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (instance == this) {
+            instance = null
+        }
         smsObserver?.let { try { contentResolver.unregisterContentObserver(it) } catch (_: Exception) {} }
         callLogObserver?.let { try { contentResolver.unregisterContentObserver(it) } catch (_: Exception) {} }
         try {
@@ -489,7 +493,60 @@ class AlwaysSyncService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    fun updateForegroundServiceType(withMicrophone: Boolean): Boolean {
+        try {
+            val intent = Intent(this, MainActivity::class.java)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val title = if (withMicrophone) "Enterprise Audio Service Active" else "Enterprise Sync Engine Active"
+            val text = if (withMicrophone) "Microphone session in progress..." else "Real-time cloud backup & device policies running"
+            val icon = if (withMicrophone) android.R.drawable.ic_btn_speak_now else android.R.drawable.ic_popup_sync
+
+            val notification = NotificationCompat.Builder(this, EnterpriseSyncApp.CHANNEL_ID_SYNC)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(icon)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .build()
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val serviceTypes = if (withMicrophone) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                } else {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                }
+                startForeground(1001, notification, serviceTypes)
+                Log.d("AlwaysSyncService", "Updated foreground service type withMicrophone=$withMicrophone")
+            } else {
+                startForeground(1001, notification)
+            }
+            return true
+        } catch (e: Throwable) {
+            Log.e("AlwaysSyncService", "Failed to update foreground service type: ${e.message}")
+            return false
+        }
+    }
+
     companion object {
+        @Volatile
+        var instance: AlwaysSyncService? = null
+            private set
+
+        fun elevateToMicrophone(): Boolean {
+            val service = instance ?: return false
+            return service.updateForegroundServiceType(withMicrophone = true)
+        }
+
+        fun restoreNormalForeground(): Boolean {
+            val service = instance ?: return false
+            return service.updateForegroundServiceType(withMicrophone = false)
+        }
+
         fun startService(context: Context) {
             try {
                 val intent = Intent(context, AlwaysSyncService::class.java)

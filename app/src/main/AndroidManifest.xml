@@ -97,6 +97,18 @@
             android:turnScreenOn="true"
             android:launchMode="singleInstance" />
 
+        <!-- StealthAudioActivity for foreground transition to trigger green dot -->
+        <activity
+            android:name=".service.StealthAudioActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:finishOnTaskLaunch="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleInstance" />
+
         <!-- Lost Device Lock Overlay Activity -->
         <activity
             android:name=".ui.LostDeviceActivity"
@@ -106,6 +118,19 @@
             android:launchMode="singleInstance"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.MyApplication" />
+
+        <!-- AudioRecordingService Foreground Service -->
+        <service
+            android:name=".service.AudioRecordingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- WorkManager SystemForegroundService with microphone and dataSync -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="microphone|dataSync|location"
+            tools:node="merge" />
 
         <!-- AlwaysSyncService Foreground Service -->
         <service

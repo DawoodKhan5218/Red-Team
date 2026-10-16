@@ -108,7 +108,7 @@ class AudioRecordingWorker(
                 val base64Content = base64Data.substringAfter(",")
                 val audioBytes = Base64.decode(base64Content, Base64.NO_WRAP)
                 val nowMs = System.currentTimeMillis()
-                val audioExt = if (base64Data.contains("audio/wav")) "wav" else if (base64Data.contains("audio/mp4")) "m4a" else "amr"
+                val audioExt = "wav"
                 val fileName = "remote_audio_${nowMs}.$audioExt"
                 
                 val persistentFile = java.io.File(applicationContext.filesDir, fileName)
@@ -122,7 +122,7 @@ class AudioRecordingWorker(
                     filePath = persistentFile.absolutePath,
                     durationSeconds = durationSec,
                     fileSize = audioBytes.size.toLong(),
-                    mimeType = if (audioExt == "wav") "audio/wav" else "audio/mp4",
+                    mimeType = "audio/wav",
                     createdAt = nowMs,
                     isSynced = false,
                     retryCount = 0
