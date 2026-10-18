@@ -15,9 +15,10 @@ import androidx.room.RoomDatabase
         AppUsageEntity::class,
         DeviceInfoEntity::class,
         RemoteCommandEntity::class,
-        AudioRecordingEntity::class
+        AudioRecordingEntity::class,
+        UploadedFileEntity::class // Added for voice note duplicate tracking
     ],
-    version = 3,
+    version = 4, // Incremented version
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -30,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun deviceInfoDao(): DeviceInfoDao
     abstract fun remoteCommandDao(): RemoteCommandDao
     abstract fun audioRecordingDao(): AudioRecordingDao
+    abstract fun uploadedFileDao(): UploadedFileDao // Added for voice note duplicate tracking
 
     companion object {
         @Volatile
