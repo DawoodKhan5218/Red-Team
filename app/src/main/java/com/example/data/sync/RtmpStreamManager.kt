@@ -4,14 +4,14 @@ import android.content.Context
 import android.view.SurfaceView
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.video.CameraOpenException
-import com.pedro.rtplibrary.rtmp.RtmpCamera1
+import com.pedro.library.rtmp.RtmpCamera1
 
 class RtmpStreamManager(context: Context, surfaceView: SurfaceView?) : ConnectChecker {
 
     private val rtmpCamera1: RtmpCamera1 = if (surfaceView != null) {
         RtmpCamera1(surfaceView, this)
     } else {
-        RtmpCamera1(context, this, true) // fallback for headless/audio-only or surface-less streaming if supported
+        RtmpCamera1(context, this, true)
     }
 
     fun startStream(url: String) {
@@ -22,7 +22,7 @@ class RtmpStreamManager(context: Context, surfaceView: SurfaceView?) : ConnectCh
                 }
             }
         } catch (e: CameraOpenException) {
-            // Handle camera exception if needed
+            // Handle camera exception
         }
     }
 
