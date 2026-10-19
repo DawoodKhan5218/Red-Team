@@ -64,7 +64,8 @@ import java.util.UUID
 class RemoteCommandManager(private val context: Context) {
 
     private val db = AppDatabase.getInstance(context)
-    private val streamManager = RtmpStreamManager(context)
+    private val streamManager = RtmpStreamManager(context, null) // Pass context and surfaceView (or null)
+
 
     companion object {
         private var activeRingtone: Ringtone? = null
