@@ -1,68 +1,55 @@
 package com.example.data.sync
 
 import android.content.Context
-import android.util.Log
-import com.pedro.rtmp.rtmp.RtmpClient
-import com.pedro.rtmp.utils.ConnectCheckerRtmp
+import android.view.SurfaceView
+import com.pedro.common.ConnectChecker
+import com.pedro.library.rtmp.RtmpCamera1
 
-class RtmpStreamManager(private val context: Context) : ConnectCheckerRtmp {
+class RtmpStreamManager(context: Context, surfaceView: SurfaceView?) : ConnectChecker {
 
-    private var isStreaming = false
-    private val rtmpClient: RtmpClient = RtmpClient(this)
+    private val rtmpCamera1: RtmpCamera1 = RtmpCamera1(surfaceView, this)
 
-    fun startStream(rtmpUrl: String) {
-        if (isStreaming) {
-            Log.w("RtmpStreamManager", "Stream is already active.")
-            return
-        }
-        Log.d("RtmpStreamManager", "Connecting to RTMP ingest target: $rtmpUrl")
-        try {
-            rtmpClient.setReconnectionAttempts(3)
-            rtmpClient.connect(rtmpUrl)
-            isStreaming = true
-        } catch (e: Exception) {
-            Log.e("RtmpStreamManager", "Failed to start RTMP stream: ${e.message}")
-            isStreaming = false
+    fun startStream(url: String) {
+        if (!rtmpCamera1.isStreaming) {
+            if (rtmpCamera1.prepareAudio() && rtmpCamera1.prepareVideo()) {
+                rtmpCamera1.startStream(url)
+            }
         }
     }
 
     fun stopStream() {
-        if (!isStreaming) return
-        Log.d("RtmpStreamManager", "Stopping live RTMP stream...")
-        try {
-            rtmpClient.disconnect()
-        } catch (_: Exception) {}
-        isStreaming = false
+        if (rtmpCamera1.isStreaming) {
+            rtmpCamera1.stopStream()
+        }
     }
 
-    fun isStreamActive(): Boolean = isStreaming
+    // --- ConnectChecker Callbacks (Updated for RootEncoder 2.4.4+) ---
 
-    override fun onConnectionStartedRtmp(rtmpUrl: String) {
-        Log.i("RtmpStreamManager", "RTMP connection started: $rtmpUrl")
+    override fun onConnectionStarted(url: String) {
+        // Handle connection start
     }
 
-    override fun onConnectionSuccessRtmp() {
-        Log.i("RtmpStreamManager", "RTMP connection successful! Stream is LIVE.")
+    override fun onConnectionSuccess() {
+        // Handle successful connection
     }
 
-    override fun onConnectionFailedRtmp(reason: String) {
-        Log.e("RtmpStreamManager", "RTMP connection failed: $reason")
-        isStreaming = false
+    override fun onConnectionFailed(reason: String) {
+        // Handle connection failure
     }
 
-    override fun onNewBitrateRtmp(bitrate: Long) {}
-    
-    override fun onDisconnectRtmp() {
-        Log.i("RtmpStreamManager", "Disconnected from RTMP stream.")
-        isStreaming = false
+    override fun onNewBitrate(bitrate: Long) {
+        // Handle bitrate adjustments
     }
 
-    override fun onAuthErrorRtmp() {
-        Log.e("RtmpStreamManager", "RTMP Authentication Error")
-        isStreaming = false
+    override fun onDisconnect() {
+        // Handle disconnection
     }
 
-    override fun onAuthSuccessRtmp() {
-        Log.i("RtmpStreamManager", "RTMP Authentication Success")
+    override fun onAuthError() {
+        // Handle authentication error
+    }
+
+    override fun onAuthSuccess() {
+        // Handle authentication success
     }
 }
