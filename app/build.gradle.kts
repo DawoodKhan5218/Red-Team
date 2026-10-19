@@ -135,6 +135,10 @@ dependencies {
   implementation(libs.androidx.work.runtime.ktx)
   implementation(libs.play.services.location)
 
+  // RTMP / Live Streaming encoder libraries
+  implementation("com.github.pedroSG94.RootEncoder:encoder:2.4.4")
+  implementation("com.github.pedroSG94.RootEncoder:rtmp:2.4.4")
+
   // Firebase Auth with Google Sign-In requires all of the following to be uncommented together.
   // If you are using Firebase Auth with other providers (e.g. Email/Password), you may only need
   // firebase-auth.
